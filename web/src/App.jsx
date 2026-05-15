@@ -74,6 +74,11 @@ const App = () => {
       label: <Link to="/chat">代理对话</Link>,
     },
     {
+      key: '/memory',
+      icon: <DatabaseOutlined />,
+      label: <Link to="/memory">记忆管理</Link>,
+    },
+    {
       key: '/history',
       icon: <HistoryOutlined />,
       label: <Link to="/history">执行历史</Link>,
@@ -135,6 +140,7 @@ const App = () => {
               <Route path="/agents" element={<AgentsListPage />} />
               <Route path="/agents/create" element={<CreateAgentPage />} />
               <Route path="/chat" element={<AgentChatPage />} />
+              <Route path="/memory" element={<MemoryPage />} />
               <Route path="/history" element={<ExecutionHistoryPage />} />
             </Routes>
           </div>
