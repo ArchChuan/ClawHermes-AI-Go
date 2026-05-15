@@ -1,0 +1,159 @@
+---
+# NetworkPolicy - 限制 Pod 网络通信
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clawhermes-ai-netpol
+  namespace: clawhermes
+spec:
+  podSelector:
+    matchLabels:
+      app: clawhermes-ai
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 允许来自 Ingress Controller 的流量
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # 允许来自 namespace 内部的流量
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+  egress:
+    # 允许 DNS 查询
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # 允许访问依赖服务
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - protocol: TCP
+          port: 4222
+    - to:
+        - podSelector:
+            matchLabels:
+              app: milvus
+      ports:
+        - protocol: TCP
+          port: 19530
+    - to:
+        - podSelector:
+            matchLabels:
+              app: neo4j
+      ports:
+        - protocol: TCP
+          port: 7687
+        - protocol: TCP
+          port: 7474
+    - to:
+        - podSelector:
+            matchLabels:
+              app: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+    # 允许访问外部 API
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: TCP
+          port: 53
+
+---
+# ResourceQuota - 资源配额限制
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: clawhermes-quota
+  namespace: clawhermes
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "4Gi"
+    limits.cpu: "8"
+    limits.memory: "8Gi"
+    persistentvolumeclaims: "5"
+    services: "10"
+    secrets: "10"
+    configmaps: "10"
+  scopes:
+    - NotTerminating
+
+---
+# LimitRange - 限制 Pod 和容器资源
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: clawhermes-limits
+  namespace: clawhermes
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "2"
+        memory: "2Gi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+
+---
+# PodSecurityPolicy - Pod 安全策略
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: clawhermes-psp
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfiles: 'runtime/default'
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  readOnlyRootFilesystem: false

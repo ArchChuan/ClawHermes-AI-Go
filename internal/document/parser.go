@@ -54,11 +54,11 @@ func (p *Parser) ParseBytes(data []byte, contentType string) (string, error) {
 
 func (p *Parser) parsePDF(filePath string) (string, error) {
 	f, r, err := pdf.Open(filePath)
-	defer f.Close()
 	if err != nil {
 		p.logger.Error("failed to open PDF", zap.Error(err))
 		return "", fmt.Errorf("failed to open PDF: %w", err)
-	}
+	} 
+	defer f.Close()
 
 	var buf bytes.Buffer
 	contentReader, err := r.GetPlainText()

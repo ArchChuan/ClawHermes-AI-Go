@@ -1,8 +1,6 @@
 package observability
 
 import (
-	"context"
-
 	"go.uber.org/zap"
 )
 
@@ -25,22 +23,6 @@ func NewLogger(env string) (*Logger, error) {
 	}
 
 	return &Logger{logger}, nil
-}
-
-type Tracer struct {
-	logger *Logger
-}
-
-func NewTracer(logger *Logger) *Tracer {
-	return &Tracer{logger: logger}
-}
-
-func (t *Tracer) StartSpan(ctx context.Context, name string) (context.Context, func()) {
-	t.logger.Info("span started", zap.String("name", name))
-
-	return ctx, func() {
-		t.logger.Info("span ended", zap.String("name", name))
-	}
 }
 
 type Metrics struct {

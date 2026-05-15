@@ -25,11 +25,11 @@ type CreateSessionRequest struct {
 }
 
 type CreateSessionResponse struct {
-	SessionID string    `json:"session_id"`
-	TenantID  string    `json:"tenant_id"`
-	UserID    string    `json:"user_id"`
-	AgentID   string    `json:"agent_id"`
-	StartTime string    `json:"start_time"`
+	SessionID string `json:"session_id"`
+	TenantID  string `json:"tenant_id"`
+	UserID    string `json:"user_id"`
+	AgentID   string `json:"agent_id"`
+	StartTime string `json:"start_time"`
 }
 
 type AddMemoryRequest struct {
@@ -62,14 +62,14 @@ type MemoryEntryResponse struct {
 }
 
 type SearchMemoryRequest struct {
-	Query    string                 `json:"query"`
-	SessionID string                `json:"session_id"`
-	TenantID string                 `json:"tenant_id"`
-	UserID   string                 `json:"user_id"`
-	Types    []string               `json:"types"`
-	Limit    int                    `json:"limit"`
-	MinScore float64                `json:"min_score"`
-	Filters  map[string]interface{} `json:"filters"`
+	Query     string                 `json:"query"`
+	SessionID string                 `json:"session_id"`
+	TenantID  string                 `json:"tenant_id"`
+	UserID    string                 `json:"user_id"`
+	Types     []string               `json:"types"`
+	Limit     int                    `json:"limit"`
+	MinScore  float64                `json:"min_score"`
+	Filters   map[string]interface{} `json:"filters"`
 }
 
 type SearchMemoryResponse struct {
@@ -78,9 +78,9 @@ type SearchMemoryResponse struct {
 }
 
 type MemorySearchResultItem struct {
-	Entry   *MemoryEntryResponse `json:"entry"`
-	Score   float64              `json:"score"`
-	Distance float64             `json:"distance,omitempty"`
+	Entry    *MemoryEntryResponse `json:"entry"`
+	Score    float64              `json:"score"`
+	Distance float64              `json:"distance,omitempty"`
 }
 
 type MemoryStatsResponse struct {
@@ -182,16 +182,16 @@ func (h *MemoryHandler) AddMemory(c *gin.Context) {
 	}
 
 	entry := &memory.MemoryEntry{
-		ID:        uuid.New().String(),
-		Role:      req.Role,
-		Content:   req.Content,
-		Timestamp: time.Now(),
-		TenantID:  req.TenantID,
-		UserID:    req.UserID,
-		SessionID: req.SessionID,
-		AgentID:   req.AgentID,
-		Metadata:  req.Metadata,
-		Tags:      req.Tags,
+		ID:         uuid.New().String(),
+		Role:       req.Role,
+		Content:    req.Content,
+		Timestamp:  time.Now(),
+		TenantID:   req.TenantID,
+		UserID:     req.UserID,
+		SessionID:  req.SessionID,
+		AgentID:    req.AgentID,
+		Metadata:   req.Metadata,
+		Tags:       req.Tags,
 		Importance: req.Importance,
 	}
 
@@ -289,12 +289,12 @@ func (h *MemoryHandler) SearchMemory(c *gin.Context) {
 	}
 
 	searchReq := &memory.MemorySearchRequest{
-		Query:   req.Query,
-		Context: sessionCtx,
-		Types:   memoryTypes,
-		Limit:   req.Limit,
+		Query:    req.Query,
+		Context:  sessionCtx,
+		Types:    memoryTypes,
+		Limit:    req.Limit,
 		MinScore: req.MinScore,
-		Filters: req.Filters,
+		Filters:  req.Filters,
 	}
 
 	if searchReq.Limit <= 0 {
@@ -371,8 +371,8 @@ func (h *MemoryHandler) GetStats(c *gin.Context) {
 
 	if tenantID := c.Query("tenant_id"); tenantID != "" {
 		sessionCtx = &memory.SessionContext{
-			TenantID: tenantID,
-			UserID:   c.Query("user_id"),
+			TenantID:  tenantID,
+			UserID:    c.Query("user_id"),
 			SessionID: c.Query("session_id"),
 		}
 	}
