@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"fmt"
+
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/skill"
 )
 
@@ -19,8 +21,8 @@ func (r *Registry) Register(id string, s skill.Skill) {
 }
 
 func (r *Registry) Get(id string) (skill.Skill, bool) {
-	s, ok := r.skills[id]
-	return s, ok
+	skill, ok := r.skills[id]
+	return skill, ok
 }
 
 func (r *Registry) GetAll() []skill.Skill {
@@ -29,4 +31,14 @@ func (r *Registry) GetAll() []skill.Skill {
 		skills = append(skills, s)
 	}
 	return skills
+}
+
+// Remove removes a skill by ID
+func (r *Registry) Remove(id string) error {
+	s, ok := r.skills[id]
+	if !ok {
+		return fmt.Errorf("skill not found: %s", id)
+	}
+	delete(r.skills, id)
+	return nil
 }

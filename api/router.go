@@ -83,6 +83,8 @@ func SetupRouter(
 		skills.GET("", skillHandler.GetAllSkills)
 		skills.POST("", skillHandler.CreateSkill)
 		skills.GET("/:id", skillHandler.GetSkill)
+		skills.PUT("/:id", skillHandler.UpdateSkill)
+		skills.DELETE("/:id", skillHandler.DeleteSkill)
 	}
 
 	// Agent endpoints

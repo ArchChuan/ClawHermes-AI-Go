@@ -106,3 +106,94 @@ func (h *SkillHandler) GetAllSkills(c *gin.Context) {
 		"skills": responses,
 	})
 }
+
+// UpdateSkill updates an existing skill
+func (h *SkillHandler) UpdateSkill(c *gin.Context) {
+	id := c.Param("id")
+	s, ok := h.registry.Get(id)
+	if !ok {
+		h.logger.Warn("skill not found", zap.String("id", id))
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "skill not found",
+		})
+		return
+	}
+
+	var req model.CreateSkillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Warn("invalid request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Code:    http.StatusBadRequest,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Update skill properties
+	switch s.GetType() {
+	case "code":
+		codeSkill, ok := s.(*skill.CodeSkill)
+		if !ok {
+			h.logger.Warn("skill is not a code skill", zap.String("id", id))
+			c.JSON(http.StatusBadRequest, model.ErrorResponse{
+				Code:    http.StatusBadRequest,
+				Message: "skill is not a code skill",
+			})
+			return
+		}
+		codeSkill.SetName(req.Name)
+		codeSkill.SetDescription(req.Description)
+		codeSkill.SetCode(req.Code)
+		codeSkill.SetLanguage(req.Language)
+
+	case "llm":
+		llmSkill, ok := s.(*skill.LLMSkill)
+		if !ok {
+			h.logger.Warn("skill is not an LLM skill", zap.String("id", id))
+			c.JSON(http.StatusBadRequest, model.ErrorResponse{
+				Code:    http.StatusBadRequest,
+				Message: "skill is not an LLM skill",
+			})
+			return
+		}
+		llmSkill.SetName(req.Name)
+		llmSkill.SetDescription(req.Description)
+
+	default:
+		h.logger.Warn("unsupported skill type", zap.String("type", s.GetType()))
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{
+			Code:    http.StatusBadRequest,
+			Message: "unsupported skill type",
+		})
+		return
+	}
+
+	h.logger.Info("skill updated", zap.String("id", id))
+	c.JSON(http.StatusOK, model.SkillResponse{
+		ID:          s.GetID(),
+		Name:        s.GetName(),
+		Description: s.GetDescription(),
+		Type:        s.GetType(),
+		CreatedAt:   time.Now().Format(time.RFC3339),
+	})
+}
+
+// DeleteSkill removes a skill
+func (h *SkillHandler) DeleteSkill(c *gin.Context) {
+	id := c.Param("id")
+
+	if err := h.registry.Remove(id); err != nil {
+		h.logger.Warn("skill not found or removal failed", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "skill not found",
+		})
+		return
+	}
+
+	h.logger.Info("skill deleted", zap.String("id", id))
+	c.JSON(http.StatusOK, gin.H{
+		"message": "skill deleted successfully",
+	})
+}
