@@ -1,0 +1,64 @@
+repos:
+  # Go formatting
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.54.2
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=5m]
+
+  # Go vet
+  - repo: https://github.com/pre-commit/mirrors-go-tools
+    rev: v0.0.1
+    hooks:
+      - id: go-vet
+
+  # Go fmt
+  - repo: https://github.com/pre-commit/mirrors-gofmt
+    rev: v0.0.1
+    hooks:
+      - id: gofmt
+
+  # YAML validation
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: yaml-unsafe
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.34.0
+    hooks:
+      - id: markdownlint
+        args: [--fix]
+
+  # Security scanning with Semgrep
+  - repo: https://github.com/returntocorp/semgrep
+    rev: v1.45.0
+    hooks:
+      - id: semgrep
+        args: [--config=p/security-audit, --config=p/go]
+        types: [go]
+
+  # Docker linting
+  - repo: https://github.com/hadialqattan/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        files: Dockerfile
+
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

@@ -105,3 +105,55 @@ ENV/
 
 # Generated files
 *.pb.go
+
+# Claude Code specific
+.claude/settings.local.json
+!.claude/settings.json
+!.claude/PROJECT_RULES.md
+
+# Pre-commit framework
+.pre-commit-framework/
+
+# Codecov
+.codecov.yml
+
+# Kubernetes secrets
+k8s/secrets/
+*.yaml.bak
+
+# Helm
+charts/*/Chart.lock
+charts/*/charts/
+
+# Web frontend
+web/node_modules/
+web/dist/
+web/.env.local
+web/coverage/
+
+# Semgrep
+.semgrep/
+.semgrep.json
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Coverage reports
+coverage.txt
+*.cover
+.coverage
+
+# Profiling
+*.prof
+*.pprof
+
+# Goreleaser
+dist/
+

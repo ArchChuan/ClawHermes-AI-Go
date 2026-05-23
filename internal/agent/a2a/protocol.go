@@ -190,10 +190,10 @@ func (p *A2AProtocol) runCleanupLoop(ctx context.Context) {
 }
 
 // GetMetrics returns protocol metrics
-func (p *A2AProtocol) GetMetrics() ProtocolMetrics {
+func (p *A2AProtocol) GetMetrics() *ProtocolMetrics {
 	p.metrics.mu.RLock()
 	defer p.metrics.mu.RUnlock()
-	return *p.metrics
+	return p.metrics
 }
 
 // IncrementMessageSent increments sent message counter

@@ -246,10 +246,10 @@ func (n *NegotiationService) Cleanup(maxAge time.Duration) {
 }
 
 // GetStats returns negotiation statistics
-func (n *NegotiationService) GetStats() NegotiationStats {
+func (n *NegotiationService) GetStats() *NegotiationStats {
 	n.stats.mu.RLock()
 	defer n.stats.mu.RUnlock()
-	return n.stats
+	return &n.stats
 }
 
 var (
