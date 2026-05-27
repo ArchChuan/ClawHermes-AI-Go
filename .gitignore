@@ -135,6 +135,9 @@ web/coverage/
 .semgrep/
 .semgrep.json
 
+# CodeGraph
+.codegraph/
+
 # AWS SAM
 .aws-sam/
 samconfig.toml

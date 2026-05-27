@@ -1,4 +1,3 @@
----
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -22,12 +21,22 @@ spec:
       containers:
       - name: nats
         image: nats:latest
-        args: ["-js", "-sd", "/data"]
+        args:
+        - -js
+        - -sd
+        - /data
         ports:
         - containerPort: 4222
         volumeMounts:
         - name: nats-data
           mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
       volumes:
       - name: nats-data
         persistentVolumeClaim:
@@ -42,9 +51,9 @@ spec:
   selector:
     app: nats
   ports:
-    - protocol: TCP
-      port: 4222
-      targetPort: 4222
+  - protocol: TCP
+    port: 4222
+    targetPort: 4222
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -53,7 +62,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 1Gi
@@ -76,23 +85,30 @@ spec:
       containers:
       - name: etcd
         image: quay.io/coreos/etcd:v3.5.5
-        command: ["etcd"]
-        args: [
-          "-advertise-client-urls=http://127.0.0.1:2379",
-          "-listen-client-urls=http://0.0.0.0:2379"
-        ]
+        command:
+        - etcd
+        args:
+        - -advertise-client-urls=http://127.0.0.1:2379
+        - -listen-client-urls=http://0.0.0.0:2379
         env:
         - name: ETCD_AUTO_COMPACTION_MODE
-          value: "revision"
+          value: revision
         - name: ETCD_AUTO_COMPACTION_RETENTION
-          value: "1000"
+          value: '1000'
         - name: ETCD_QUOTA_BACKEND_BYTES
-          value: "4294967296"
+          value: '4294967296'
         ports:
         - containerPort: 2379
         volumeMounts:
         - name: etcd-data
           mountPath: /etcd
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
       volumes:
       - name: etcd-data
         persistentVolumeClaim:
@@ -107,9 +123,9 @@ spec:
   selector:
     app: etcd
   ports:
-    - protocol: TCP
-      port: 2379
-      targetPort: 2379
+  - protocol: TCP
+    port: 2379
+    targetPort: 2379
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -118,7 +134,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 1Gi
@@ -141,17 +157,27 @@ spec:
       containers:
       - name: minio
         image: minio/minio:latest
-        command: ["minio", "server", "/minio_data"]
+        command:
+        - minio
+        - server
+        - /minio_data
         env:
         - name: MINIO_ROOT_USER
-          value: "minioadmin"
+          value: minioadmin
         - name: MINIO_ROOT_PASSWORD
-          value: "minioadmin"
+          value: minioadmin
         ports:
         - containerPort: 9000
         volumeMounts:
         - name: minio-data
           mountPath: /minio_data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
       volumes:
       - name: minio-data
         persistentVolumeClaim:
@@ -166,9 +192,9 @@ spec:
   selector:
     app: minio
   ports:
-    - protocol: TCP
-      port: 9000
-      targetPort: 9000
+  - protocol: TCP
+    port: 9000
+    targetPort: 9000
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -177,7 +203,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
@@ -204,14 +230,21 @@ spec:
         - containerPort: 19530
         env:
         - name: COMMON_STORAGETYPE
-          value: "local"
+          value: local
         - name: ETCD_ENDPOINTS
-          value: "etcd:2379"
+          value: etcd:2379
         - name: MINIO_ADDRESS
-          value: "minio:9000"
+          value: minio:9000
         volumeMounts:
         - name: milvus-data
           mountPath: /var/lib/milvus
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
       volumes:
       - name: milvus-data
         persistentVolumeClaim:
@@ -226,9 +259,9 @@ spec:
   selector:
     app: milvus
   ports:
-    - protocol: TCP
-      port: 19530
-      targetPort: 19530
+  - protocol: TCP
+    port: 19530
+    targetPort: 19530
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -237,7 +270,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
@@ -249,8 +282,8 @@ metadata:
   namespace: clawhermes-system
 type: Opaque
 data:
-  username: bmVvNGo=  # base64编码的"neo4j"
-  password: cGFzc3dvcmQ=  # base64编码的"password"
+  username: bmVvNGo=
+  password: cGFzc3dvcmQ=
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -275,14 +308,21 @@ spec:
         - containerPort: 7474
         env:
         - name: NEO4J_AUTH
-          value: "neo4j/password"
+          value: neo4j/password
         - name: NEO4J_dbms_memory_heap_max__size
-          value: "2G"
+          value: 2G
         volumeMounts:
         - name: neo4j-data
           mountPath: /data
         - name: neo4j-logs
           mountPath: /logs
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
       volumes:
       - name: neo4j-data
         persistentVolumeClaim:
@@ -300,12 +340,14 @@ spec:
   selector:
     app: neo4j
   ports:
-    - protocol: TCP
-      port: 7687
-      targetPort: 7687
-    - protocol: TCP
-      port: 7474
-      targetPort: 7474
+  - name: bolt
+    protocol: TCP
+    port: 7687
+    targetPort: 7687
+  - name: http
+    protocol: TCP
+    port: 7474
+    targetPort: 7474
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -314,7 +356,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
@@ -326,7 +368,7 @@ metadata:
   namespace: clawhermes-system
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 1Gi
@@ -355,6 +397,13 @@ spec:
         - name: otel-config
           mountPath: /etc/otel-collector-config.yaml
           subPath: otel-collector-config.yaml
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
       volumes:
       - name: otel-config
         configMap:
@@ -369,9 +418,9 @@ spec:
   selector:
     app: otel-collector
   ports:
-    - protocol: TCP
-      port: 4317
-      targetPort: 4317
+  - protocol: TCP
+    port: 4317
+    targetPort: 4317
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -379,29 +428,10 @@ metadata:
   name: otel-collector-config
   namespace: clawhermes-system
 data:
-  otel-collector-config.yaml: |
-    receivers:
-      otlp:
-        protocols:
-          grpc:
-            endpoint: 0.0.0.0:4317
-    processors:
-      batch:
-        timeout: 1s
-    exporters:
-      logging:
-        loglevel: debug
-    service:
-      pipelines:
-        metrics:
-          receivers: [otlp]
-          processors: [batch]
-          exporters: [logging]
-        traces:
-          receivers: [otlp]
-          processors: [batch]
-          exporters: [logging]
-        logs:
-          receivers: [otlp]
-          processors: [batch]
-          exporters: [logging]
+  otel-collector-config.yaml: "receivers:\n  otlp:\n    protocols:\n      grpc:\n\
+    \        endpoint: 0.0.0.0:4317\nprocessors:\n  batch:\n    timeout: 1s\nexporters:\n\
+    \  logging:\n    loglevel: debug\nservice:\n  pipelines:\n    metrics:\n     \
+    \ receivers: [otlp]\n      processors: [batch]\n      exporters: [logging]\n \
+    \   traces:\n      receivers: [otlp]\n      processors: [batch]\n      exporters:\
+    \ [logging]\n    logs:\n      receivers: [otlp]\n      processors: [batch]\n \
+    \     exporters: [logging]"
