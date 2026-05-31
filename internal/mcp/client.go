@@ -361,7 +361,7 @@ func (c *BaseClient) sendStdioRequest(ctx context.Context, req *MCPRequest) (*MC
 }
 
 func (c *BaseClient) sendSSERequest(ctx context.Context, req *MCPRequest) (*MCPResponse, error) {
-	if c.sseConn == nil {
+	if c.httpClient == nil {
 		return nil, fmt.Errorf("SSE connection not established")
 	}
 

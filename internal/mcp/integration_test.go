@@ -1,6 +1,11 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,4 +224,92 @@ func TestMCPCacheExpiration(t *testing.T) {
 	}
 
 	t.Log("MCP cache expiration test passed")
+}
+
+// TestSSETransportFunctional 验证 SSE transport 可以正常发送请求
+func TestSSETransportFunctional(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(MCPResponse{
+			Result: json.RawMessage(`[]`),
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	logger, _ := zap.NewDevelopment()
+	cfg := &MCPServerConfig{
+		ID:        "test-sse",
+		Transport: "sse",
+		URL:       srv.URL,
+		Timeout:   5 * time.Second,
+	}
+	client := NewBaseClient(cfg, logger)
+
+	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		t.Fatalf("ListTools via SSE failed: %v", err)
+	}
+	_ = tools
+}
+
+// TestHealthCheckDoesNotBlockConcurrentReads 验证 HealthCheck 不阻塞并发 ListTools
+func TestHealthCheckDoesNotBlockConcurrentReads(t *testing.T) {
+	var slowOnce sync.Once
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/rpc", func(w http.ResponseWriter, r *http.Request) {
+		slowOnce.Do(func() {
+			time.Sleep(200 * time.Millisecond)
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(MCPResponse{Result: json.RawMessage(`[]`)})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	logger, _ := zap.NewDevelopment()
+	cfg := &MCPServerConfig{
+		ID:        "test-hc-concurrent",
+		Transport: "http",
+		URL:       srv.URL,
+		Timeout:   5 * time.Second,
+	}
+	client := NewBaseClient(cfg, logger)
+	ctx := context.Background()
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	start := time.Now()
+	go func() {
+		defer wg.Done()
+		client.HealthCheck(ctx) //nolint:errcheck
+	}()
+	go func() {
+		defer wg.Done()
+		time.Sleep(10 * time.Millisecond)
+		client.ListTools(ctx) //nolint:errcheck
+	}()
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	if elapsed > 300*time.Millisecond {
+		t.Errorf("HealthCheck blocked concurrent ListTools for %v (expected < 300ms)", elapsed)
+	}
 }
