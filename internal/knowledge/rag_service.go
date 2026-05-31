@@ -7,20 +7,20 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
-	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/mcp"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"go.uber.org/zap"
 )
 
 type RAGService struct {
 	embeddingSvc *embedding.EmbeddingService
-	vectorStore  *mcp.VectorStore
+	vectorStore  *vector.VectorStore
 	graphRAG     *GraphRAG
 	logger       *zap.Logger
 }
 
 func NewRAGService(
 	embeddingSvc *embedding.EmbeddingService,
-	vectorStore *mcp.VectorStore,
+	vectorStore *vector.VectorStore,
 	graphRAG *GraphRAG,
 	logger *zap.Logger,
 ) *RAGService {
@@ -43,7 +43,7 @@ type RAGQueryResult struct {
 	Answer        string
 	Sources       []Source
 	GraphContext  []GraphEntity
-	VectorResults []mcp.SearchResult
+	VectorResults []vector.SearchResult
 	Mode          string
 	Latency       time.Duration
 }
@@ -141,7 +141,7 @@ func (rs *RAGService) Query(ctx context.Context, req RAGQueryRequest) (*RAGQuery
 	return result, nil
 }
 
-func (rs *RAGService) queryVector(ctx context.Context, question string, collection string, topK int) ([]mcp.SearchResult, error) {
+func (rs *RAGService) queryVector(ctx context.Context, question string, collection string, topK int) ([]vector.SearchResult, error) {
 	rs.logger.Debug("querying vector store")
 
 	queryVector, err := rs.embeddingSvc.EmbedVector(ctx, question)
