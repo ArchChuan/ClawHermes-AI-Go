@@ -26,7 +26,7 @@ func (m *MockGraphRAG) CreateNode(ctx context.Context, label string, props map[s
 	return nil
 }
 
-func (m *MockGraphRAG) CreateRelationship(ctx context.Context, fromID, toID, relType string, props map[string]interface{}) error {
+func (m *MockGraphRAG) CreateRelationship(ctx context.Context, fromID, toID, relType string) error {
 	return nil
 }
 

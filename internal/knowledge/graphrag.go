@@ -73,12 +73,11 @@ func (g *GraphRAG) CreateNode(ctx context.Context, label string, properties map[
 func (g *GraphRAG) CreateRelationship(ctx context.Context, fromID, toID, relType string) error {
 	g.logger.Debug("creating relationship", zap.String("type", relType))
 
-	cypher := `
-		MATCH (a), (b)
-		WHERE elementId(a) = $fromId AND elementId(b) = $toId
+	cypher := fmt.Sprintf(`
+		MATCH (a {id: $fromId}), (b {id: $toId})
 		CREATE (a)-[r:%s]->(b)
 		SET r.created_at = datetime()
-	`
+	`, relType)
 	result, err := g.session.Run(ctx, cypher, map[string]interface{}{
 		"fromId": fromID,
 		"toId":   toID,

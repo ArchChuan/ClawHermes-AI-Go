@@ -19,7 +19,7 @@ func TestMockGraphRAGInterface(t *testing.T) {
 		t.Errorf("expected no error from CreateNode, got %v", err)
 	}
 
-	if err := mockGraphRAG.CreateRelationship(ctx, "from", "to", "rel", map[string]interface{}{}); err != nil {
+	if err := mockGraphRAG.CreateRelationship(ctx, "from", "to", "rel"); err != nil {
 		t.Errorf("expected no error from CreateRelationship, got %v", err)
 	}
 

@@ -24,34 +24,60 @@ func TestParseBytes(t *testing.T) {
 	parser := NewParser(logger)
 
 	tests := []struct {
-		name        string
-		data        []byte
-		contentType string
-		expectErr   bool
+		name      string
+		data      []byte
+		hint      string
+		expectErr bool
 	}{
+		// MIME type inputs
 		{
-			name:        "plain text",
-			data:        []byte("hello world"),
-			contentType: "text/plain",
-			expectErr:   false,
+			name:      "plain text via MIME type",
+			data:      []byte("hello world"),
+			hint:      "text/plain",
+			expectErr: false,
 		},
 		{
-			name:        "markdown",
-			data:        []byte("# Title\nContent"),
-			contentType: "text/markdown",
-			expectErr:   false,
+			name:      "markdown via MIME type",
+			data:      []byte("# Title\nContent"),
+			hint:      "text/markdown",
+			expectErr: false,
 		},
 		{
-			name:        "unsupported type",
-			data:        []byte("data"),
-			contentType: "application/unknown",
-			expectErr:   true,
+			name:      "unsupported MIME type",
+			data:      []byte("data"),
+			hint:      "application/unknown",
+			expectErr: true,
+		},
+		// File name extension inputs
+		{
+			name:      "plain text via .txt extension",
+			data:      []byte("hello world"),
+			hint:      "document.txt",
+			expectErr: false,
+		},
+		{
+			name:      "markdown via .md extension",
+			data:      []byte("# Title\nContent"),
+			hint:      "README.md",
+			expectErr: false,
+		},
+		{
+			name:      "uppercase extension",
+			data:      []byte("hello"),
+			hint:      "NOTE.TXT",
+			expectErr: false,
+		},
+		{
+			name:      "unsupported extension",
+			data:      []byte("data"),
+			hint:      "file.xyz",
+			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parser.ParseBytes(tt.data, tt.contentType)
+			result, err := parser.ParseBytes(tt.data, tt.hint)
 			if (err != nil) != tt.expectErr {
 				t.Errorf("ParseBytes() error = %v, expectErr %v", err, tt.expectErr)
 			}
