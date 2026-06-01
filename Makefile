@@ -1,7 +1,8 @@
 .PHONY: build run test lint clean k8s-deploy k8s-delete helm-install helm-uninstall install typecheck \
 	docker-build docker-push \
 	frontend-install frontend-dev frontend-dev-debug frontend-build \
-	frontend-docker-build frontend-clean
+	frontend-docker-build frontend-clean \
+	dev-local dev-k8s
 
 # 5 条项目命令规范
 
@@ -174,3 +175,17 @@ frontend-docker-build:
 	@echo "🐳 构建前端 Docker 镜像..."
 	docker build -t clawhermes-frontend:local -f web/Dockerfile web/
 	@echo "✓ 前端镜像构建完成: clawhermes-frontend:local"
+
+# ============================================
+# 本地开发访问（minikube）
+# ============================================
+
+# 方案一：本地前端 dev server + minikube 后端 port-forward（热重载，适合日常开发）
+dev-local:
+	@echo "🚀 方案一：本地前端 + minikube 后端..."
+	@bash dev-local.sh
+
+# 方案二：全 minikube 部署，Ingress 统一入口（适合集成验证）
+dev-k8s:
+	@echo "🚀 方案二：全 minikube 部署..."
+	@bash dev-k8s.sh

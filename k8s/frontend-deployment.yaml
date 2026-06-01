@@ -24,8 +24,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: clawhermes-frontend:latest
-          imagePullPolicy: IfNotPresent
+          image: clawhermes-frontend:local
+          imagePullPolicy: Never
           ports:
             - containerPort: 80
               name: http
