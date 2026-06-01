@@ -177,24 +177,19 @@ func (rs *RAGService) queryVector(ctx context.Context, question string, collecti
 func (rs *RAGService) queryGraph(ctx context.Context, question string) ([]GraphEntity, error) {
 	rs.logger.Debug("querying knowledge graph")
 
-	entities, err := rs.graphRAG.Query(ctx, question)
+	records, err := rs.graphRAG.FullTextSearch(ctx, question, 20)
 	if err != nil {
 		return nil, err
 	}
 
 	var graphEntities []GraphEntity
-	if results, ok := entities.([]interface{}); ok {
-		for _, r := range results {
-			if m, ok := r.(map[string]interface{}); ok {
-				if id, ok := m["id"].(string); ok {
-					graphEntities = append(graphEntities, GraphEntity{
-						ID:         id,
-						Label:      "Entity",
-						Properties: m,
-					})
-				}
-			}
-		}
+	for _, m := range records {
+		id, _ := m["id"].(string)
+		graphEntities = append(graphEntities, GraphEntity{
+			ID:         id,
+			Label:      "Entity",
+			Properties: m,
+		})
 	}
 
 	return graphEntities, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"go.uber.org/zap"
@@ -144,10 +145,9 @@ func (g *GraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxDepth
 	}
 
 	cypher := fmt.Sprintf(`
-		MATCH (n)-[r*1..%d]->(neighbor)
-		WHERE elementId(n) = $nodeId
+		MATCH (n {id: $nodeId})-[r*1..%d]->(neighbor)
 		RETURN neighbor, r, n
-		ORDER BY r[0].created_at DESC
+		ORDER BY neighbor.created_at DESC
 		LIMIT 20
 	`, maxDepth)
 	result, err := g.session.Run(ctx, cypher, map[string]interface{}{
@@ -178,6 +178,13 @@ func (g *GraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxDepth
 }
 
 func (g *GraphRAG) FullTextSearch(ctx context.Context, searchTerm string, limit int) ([]map[string]interface{}, error) {
+	if strings.TrimSpace(searchTerm) == "" {
+		return nil, fmt.Errorf("searchTerm must not be empty")
+	}
+	if limit <= 0 || limit > 1000 {
+		return nil, fmt.Errorf("limit must be between 1 and 1000, got %d", limit)
+	}
+
 	cypher := `
 		CALL db.index.fulltext.queryNodes('entity_fulltext', $searchTerm) YIELD node, score
 		RETURN node, score
