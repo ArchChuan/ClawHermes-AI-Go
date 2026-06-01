@@ -184,11 +184,23 @@ func (rs *RAGService) queryGraph(ctx context.Context, question string) ([]GraphE
 
 	var graphEntities []GraphEntity
 	for _, m := range records {
-		id, _ := m["id"].(string)
+		node, ok := m["node"]
+		if !ok {
+			continue
+		}
+		props, ok := node.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := props["id"].(string)
+		if id == "" {
+			rs.logger.Warn("graph search result missing id, skipping")
+			continue
+		}
 		graphEntities = append(graphEntities, GraphEntity{
 			ID:         id,
 			Label:      "Entity",
-			Properties: m,
+			Properties: props,
 		})
 	}
 

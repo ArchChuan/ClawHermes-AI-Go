@@ -192,7 +192,7 @@ func (g *GraphRAG) FullTextSearch(ctx context.Context, searchTerm string, limit 
 		LIMIT $limit
 	`
 	result, err := g.session.Run(ctx, cypher, map[string]interface{}{
-		"searchTerm": fmt.Sprintf("*%s*", searchTerm),
+		"searchTerm": searchTerm + "*",
 		"limit":     limit,
 	})
 	if err != nil {
