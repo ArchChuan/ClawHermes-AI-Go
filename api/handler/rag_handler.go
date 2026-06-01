@@ -2,13 +2,12 @@ package handler
 
 import (
 	"context"
-	"fmt"
-	"mime/multipart"
 	"net/http"
-	"time"
+	"mime/multipart"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/knowledge"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -79,7 +78,7 @@ func (h *RAGHandler) UploadDocument(c *gin.Context) {
 		return
 	}
 
-	documentID := fmt.Sprintf("doc_%d", time.Now().UnixNano())
+	documentID := uuid.New().String()
 
 	ingestReq := knowledge.IngestDocumentRequest{
 		Workspace:    req.Workspace,

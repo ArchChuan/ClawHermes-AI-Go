@@ -37,18 +37,37 @@ func (p *Parser) ParseFile(filePath string) (string, error) {
 	}
 }
 
-func (p *Parser) ParseBytes(data []byte, contentType string) (string, error) {
-	p.logger.Debug("parsing bytes", zap.String("type", contentType))
+// ParseBytes parses document bytes. The hint parameter accepts either a file name
+// (e.g. "report.pdf") or a MIME type (e.g. "application/pdf").
+func (p *Parser) ParseBytes(data []byte, hint string) (string, error) {
+	p.logger.Debug("parsing bytes", zap.String("hint", hint))
 
-	switch contentType {
-	case "application/pdf":
+	lower := strings.ToLower(hint)
+
+	// Detect by MIME type when hint contains "/"
+	if strings.Contains(lower, "/") {
+		switch lower {
+		case "application/pdf":
+			return p.parsePDFBytes(data)
+		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+			return p.parseDOCXBytes(data)
+		case "text/plain", "text/markdown":
+			return string(data), nil
+		default:
+			return "", fmt.Errorf("unsupported content type: %s", hint)
+		}
+	}
+
+	// Detect by file extension
+	switch {
+	case strings.HasSuffix(lower, ".pdf"):
 		return p.parsePDFBytes(data)
-	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+	case strings.HasSuffix(lower, ".docx"):
 		return p.parseDOCXBytes(data)
-	case "text/plain", "text/markdown":
+	case strings.HasSuffix(lower, ".txt"), strings.HasSuffix(lower, ".md"):
 		return string(data), nil
 	default:
-		return "", fmt.Errorf("unsupported content type: %s", contentType)
+		return "", fmt.Errorf("unsupported file type: %s", hint)
 	}
 }
 

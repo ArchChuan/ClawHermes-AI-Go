@@ -41,20 +41,20 @@ func NewKnowledgeIngest(
 }
 
 type IngestDocumentRequest struct {
-	Workspace     string
-	DocumentData  []byte
-	FileName      string
-	DocumentID    string
+	Workspace    string
+	DocumentData []byte
+	FileName     string
+	DocumentID   string
 }
 
 type IngestResult struct {
-	DocumentID      string
-	Workspace      string
-	TotalChunks    int
-	TotalVectors   int
-	TotalNodes     int
-	Duration       time.Duration
-	Errors         []string
+	DocumentID   string
+	Workspace    string
+	TotalChunks  int
+	TotalVectors int
+	TotalNodes   int
+	Duration     time.Duration
+	Errors       []string
 }
 
 func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumentRequest) (*IngestResult, error) {
@@ -65,8 +65,8 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 
 	result := &IngestResult{
 		DocumentID: req.DocumentID,
-		Workspace:   req.Workspace,
-		Errors:      []string{},
+		Workspace:  req.Workspace,
+		Errors:     []string{},
 	}
 
 	content, err := ki.parser.ParseBytes(req.DocumentData, req.FileName)
@@ -79,50 +79,49 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 
 	chunks := ki.chunker.SmartChunk(content)
 	result.TotalChunks = len(chunks)
-
 	ki.logger.Info("text chunked", zap.Int("num_chunks", len(chunks)))
 
-	var vectors []vector.DocumentChunk
-	for i, chunk := range chunks {
-		embedVec, err := ki.embeddingSvc.EmbedVector(ctx, chunk.Content)
-		if err != nil {
-			ki.logger.Warn("failed to embed chunk", zap.Int("chunk_index", i), zap.Error(err))
-			result.Errors = append(result.Errors, fmt.Sprintf("chunk %d embed failed: %v", i, err))
-			continue
-		}
-
-		docID := fmt.Sprintf("%s_chunk_%d", req.DocumentID, i)
-		vectors = append(vectors, vector.DocumentChunk{
-			ID:             docID,
-			Content:        chunk.Content,
-			SourceDocument: req.DocumentID,
-			ChunkIndex:     int64(i),
-			Vector:         embedVec,
-		})
+	// Batch embed all chunks in one API call
+	chunkTexts := make([]string, len(chunks))
+	for i, c := range chunks {
+		chunkTexts[i] = c.Content
 	}
 
-	result.TotalVectors = len(vectors)
-	ki.logger.Info("vectors generated", zap.Int("count", len(vectors)))
+	embedVecs, err := ki.embeddingSvc.EmbedBatch(ctx, chunkTexts)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("batch embed failed: %v", err))
+		return result, fmt.Errorf("failed to embed chunks: %w", err)
+	}
+
+	docChunks := make([]vector.DocumentChunk, len(embedVecs))
+	for i, vec := range embedVecs {
+		docChunks[i] = vector.DocumentChunk{
+			ID:             fmt.Sprintf("%s_chunk_%d", req.DocumentID, i),
+			Content:        chunks[i].Content,
+			SourceDocument: req.DocumentID,
+			ChunkIndex:     int64(i),
+			Vector:         vec,
+		}
+	}
+
+	result.TotalVectors = len(docChunks)
+	ki.logger.Info("vectors generated", zap.Int("count", len(docChunks)))
 
 	collectionName := fmt.Sprintf("%s_kb", req.Workspace)
 
-	// Create collection if not exists
 	if err := ki.vectorStore.CreateCollection(ctx, collectionName); err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
 			ki.logger.Error("failed to create collection", zap.Error(err))
 			result.Errors = append(result.Errors, fmt.Sprintf("collection create failed: %v", err))
 			return result, err
 		}
-		ki.logger.Info("collection already exists or created successfully")
 	}
 
-	if err := ki.vectorStore.Insert(ctx, collectionName, vectors); err != nil {
+	if err := ki.vectorStore.Insert(ctx, collectionName, docChunks); err != nil {
 		ki.logger.Error("failed to insert vectors", zap.Error(err))
 		result.Errors = append(result.Errors, fmt.Sprintf("vector insert failed: %v", err))
 		return result, fmt.Errorf("failed to insert vectors: %w", err)
 	}
-
-	ki.logger.Info("vectors inserted", zap.String("collection", collectionName))
 
 	if err := ki.vectorStore.Flush(ctx, collectionName); err != nil {
 		ki.logger.Error("failed to flush vectors", zap.Error(err))
@@ -130,36 +129,45 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 		return result, fmt.Errorf("failed to flush collection: %w", err)
 	}
 
-	ki.logger.Info("vectors flushed")
+	ki.logger.Info("vectors inserted and flushed", zap.String("collection", collectionName))
 
 	if ki.graphRAG != nil {
 		ki.logger.Info("creating knowledge graph nodes")
+		now := time.Now().Unix()
+
 		docNodeProps := map[string]interface{}{
-			"id":        req.DocumentID,
-			"title":     req.FileName,
-			"format":    req.FileName,
-			"workspace": req.Workspace,
-			"created_at": time.Now().Unix(),
+			"id":         req.DocumentID,
+			"title":      req.FileName,
+			"workspace":  req.Workspace,
+			"created_at": now,
 		}
 
 		if err := ki.graphRAG.CreateNode(ctx, "Document", docNodeProps); err != nil {
 			ki.logger.Warn("failed to create document node", zap.Error(err))
-			result.Errors = append(result.Errors, fmt.Sprintf("graph node create failed: %v", err))
+			result.Errors = append(result.Errors, fmt.Sprintf("graph document node failed: %v", err))
 		} else {
 			result.TotalNodes++
 
-			for i := 0; i < len(chunks); i++ {
+			for i, chunk := range chunks {
+				chunkID := fmt.Sprintf("%s_chunk_%d", req.DocumentID, i)
 				chunkProps := map[string]interface{}{
-					"id":             fmt.Sprintf("%s_chunk_%d", req.DocumentID, i),
-					"content":        chunks[i].Content,
-					"chunk_index":    i,
-					"created_at":      time.Now().Unix(),
+					"id":          chunkID,
+					"content":     chunk.Content,
+					"chunk_index": i,
+					"created_at":  now,
 				}
 
 				if err := ki.graphRAG.CreateNode(ctx, "DocumentChunk", chunkProps); err != nil {
 					ki.logger.Warn("failed to create chunk node", zap.Int("chunk", i), zap.Error(err))
-				} else {
-					result.TotalNodes++
+					result.Errors = append(result.Errors, fmt.Sprintf("graph chunk %d node failed: %v", i, err))
+					continue
+				}
+				result.TotalNodes++
+
+				// Link chunk to its parent document
+				if err := ki.graphRAG.CreateRelationship(ctx, req.DocumentID, chunkID, "HAS_CHUNK"); err != nil {
+					ki.logger.Warn("failed to create HAS_CHUNK relationship", zap.Int("chunk", i), zap.Error(err))
+					result.Errors = append(result.Errors, fmt.Sprintf("graph chunk %d relationship failed: %v", i, err))
 				}
 			}
 		}
