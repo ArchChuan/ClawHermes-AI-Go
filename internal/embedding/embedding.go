@@ -4,39 +4,39 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
 	"go.uber.org/zap"
 )
 
 type EmbeddingService struct {
-	client *openai.Client
+	client llmgateway.EmbeddingClient
+	model  string
 	logger *zap.Logger
 }
 
-func NewEmbeddingService(apiKey string, logger *zap.Logger) *EmbeddingService {
-	config := openai.DefaultConfig(apiKey)
-	client := openai.NewClientWithConfig(config)
+func NewEmbeddingService(client llmgateway.EmbeddingClient, logger *zap.Logger) *EmbeddingService {
 	return &EmbeddingService{
 		client: client,
+		model:  "text-embedding-3-small",
 		logger: logger,
 	}
 }
 
 func (e *EmbeddingService) EmbedVector(ctx context.Context, text string) ([]float32, error) {
-	resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+	resp, err := e.client.CreateEmbeddings(ctx, &llmgateway.EmbeddingRequest{
 		Input: []string{text},
-		Model: openai.SmallEmbedding3,
+		Model: e.model,
 	})
 	if err != nil {
 		e.logger.Error("failed to create embedding", zap.Error(err))
 		return nil, fmt.Errorf("failed to create embedding: %w", err)
 	}
 
-	if len(resp.Data) == 0 {
+	if len(resp.Embeddings) == 0 {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	return resp.Data[0].Embedding, nil
+	return resp.Embeddings[0], nil
 }
 
 func (e *EmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
@@ -50,9 +50,9 @@ func (e *EmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]
 		}
 
 		batch := texts[i:end]
-		resp, err := e.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		resp, err := e.client.CreateEmbeddings(ctx, &llmgateway.EmbeddingRequest{
 			Input: batch,
-			Model: openai.SmallEmbedding3,
+			Model: e.model,
 		})
 		if err != nil {
 			e.logger.Error("failed to create batch embeddings",
@@ -62,9 +62,7 @@ func (e *EmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]
 			return nil, fmt.Errorf("failed to create batch embeddings: %w", err)
 		}
 
-		for _, data := range resp.Data {
-			allVectors = append(allVectors, data.Embedding)
-		}
+		allVectors = append(allVectors, resp.Embeddings...)
 	}
 
 	return allVectors, nil

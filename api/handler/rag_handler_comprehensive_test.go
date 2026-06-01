@@ -10,6 +10,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/document"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/knowledge"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/textchunk"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"github.com/gin-gonic/gin"
@@ -20,7 +21,7 @@ func TestRAGHandlerUploadDocument(t *testing.T) {
 	logger := zap.NewNop()
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService("", logger)
+	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
 	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
 	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
@@ -52,7 +53,7 @@ func TestRAGHandlerQuery(t *testing.T) {
 	logger := zap.NewNop()
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService("", logger)
+	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
 	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
 	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
@@ -85,7 +86,7 @@ func TestRAGHandlerUploadDocumentInvalidRequest(t *testing.T) {
 	logger := zap.NewNop()
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService("", logger)
+	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
 	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
 	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
@@ -110,7 +111,7 @@ func TestRAGHandlerQueryInvalidRequest(t *testing.T) {
 	logger := zap.NewNop()
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService("", logger)
+	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
 	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
 	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)

@@ -46,7 +46,7 @@ func SetupRouter(
 	vectorStore := vectorstore.NewVectorStore(cfg.MilvusHost, cfg.MilvusPort, logger)
 	graphRAG := knowledge.NewGraphRAG(cfg.Neo4jURI, cfg.Neo4jUser, cfg.Neo4jPassword, logger)
 
-	embedSvc := embedding.NewEmbeddingService(cfg.OpenAIAPIKey, logger)
+	embedSvc := embedding.NewEmbeddingService(gateway, logger)
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
 

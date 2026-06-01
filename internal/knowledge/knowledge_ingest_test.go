@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"go.uber.org/zap"
 )
@@ -173,7 +174,7 @@ func TestGraphEntityStructure(t *testing.T) {
 
 func TestBuildPrompt(t *testing.T) {
 	logger := zap.NewNop()
-	embedSvc := embedding.NewEmbeddingService("", logger)
+	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
 	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
 	graphRAG := NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 
