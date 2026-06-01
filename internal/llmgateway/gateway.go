@@ -43,19 +43,38 @@ type LLMClient interface {
 	Health(ctx context.Context) error
 }
 
+type EmbeddingRequest struct {
+	Input []string `json:"input"`
+	Model string   `json:"model"`
+}
+
+type EmbeddingResponse struct {
+	Embeddings [][]float32 `json:"embeddings"`
+}
+
+type EmbeddingClient interface {
+	CreateEmbeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error)
+}
+
 type Gateway struct {
-	clients         map[ModelProvider]LLMClient
-	defaultProvider ModelProvider
+	clients          map[ModelProvider]LLMClient
+	embeddingClients map[ModelProvider]EmbeddingClient
+	defaultProvider  ModelProvider
 }
 
 func NewGateway() *Gateway {
 	return &Gateway{
-		clients: make(map[ModelProvider]LLMClient),
+		clients:          make(map[ModelProvider]LLMClient),
+		embeddingClients: make(map[ModelProvider]EmbeddingClient),
 	}
 }
 
 func (g *Gateway) RegisterClient(provider ModelProvider, client LLMClient) {
 	g.clients[provider] = client
+}
+
+func (g *Gateway) RegisterEmbeddingClient(provider ModelProvider, client EmbeddingClient) {
+	g.embeddingClients[provider] = client
 }
 
 func (g *Gateway) SetDefault(provider ModelProvider) {
@@ -65,7 +84,6 @@ func (g *Gateway) SetDefault(provider ModelProvider) {
 func (g *Gateway) Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	provider := g.defaultProvider
 	if req.Model != "" {
-		// 从 model 字符串中提取 provider
 		provider = g.parseProvider(req.Model)
 	}
 
@@ -75,6 +93,17 @@ func (g *Gateway) Complete(ctx context.Context, req *CompletionRequest) (*Comple
 	}
 
 	return client.Complete(ctx, req)
+}
+
+func (g *Gateway) CreateEmbeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
+	client, ok := g.embeddingClients[g.defaultProvider]
+	if !ok {
+		client, ok = g.embeddingClients[ProviderOpenAI]
+		if !ok {
+			return nil, fmt.Errorf("no embedding client registered")
+		}
+	}
+	return client.CreateEmbeddings(ctx, req)
 }
 
 func (g *Gateway) Health(ctx context.Context) error {
