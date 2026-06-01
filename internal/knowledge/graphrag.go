@@ -139,6 +139,10 @@ func (g *GraphRAG) Query(ctx context.Context, query string) (interface{}, error)
 }
 
 func (g *GraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxDepth int) ([]map[string]interface{}, error) {
+	if maxDepth <= 0 || maxDepth > 10 {
+		return nil, fmt.Errorf("maxDepth must be between 1 and 10, got %d", maxDepth)
+	}
+
 	cypher := fmt.Sprintf(`
 		MATCH (n)<-[r*1..%d]-(neighbor)
 		WHERE elementId(n) = $nodeId

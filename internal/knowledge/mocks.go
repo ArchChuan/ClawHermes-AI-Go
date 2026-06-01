@@ -37,8 +37,8 @@ func (m *MockGraphRAG) Query(ctx context.Context, query string) (interface{}, er
 	return m.queryResult, nil
 }
 
-func (m *MockGraphRAG) GetNeighborNodes(ctx context.Context, nodeID string) ([]interface{}, error) {
-	return []interface{}{}, nil
+func (m *MockGraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxDepth int) ([]map[string]interface{}, error) {
+	return []map[string]interface{}{}, nil
 }
 
 func (m *MockGraphRAG) FullTextSearch(ctx context.Context, query string) ([]interface{}, error) {

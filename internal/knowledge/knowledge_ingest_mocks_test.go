@@ -33,7 +33,7 @@ func TestMockGraphRAGInterface(t *testing.T) {
 		t.Error("expected non-nil query result")
 	}
 
-	neighbors, err := mockGraphRAG.GetNeighborNodes(ctx, "node-1")
+	neighbors, err := mockGraphRAG.GetNeighborNodes(ctx, "node-1", 2)
 	if err != nil {
 		t.Errorf("expected no error from GetNeighborNodes, got %v", err)
 	}
