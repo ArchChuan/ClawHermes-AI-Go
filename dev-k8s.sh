@@ -28,7 +28,7 @@ fi
 # 构建前端镜像（在 minikube docker 环境内）
 echo "🐳 在 minikube 环境内构建前端镜像..."
 eval "$(minikube docker-env)"
-docker build -t clawhermes-frontend:local -f web/Dockerfile web/
+docker build -t clawhermes-frontend:local --build-arg BUILD_MODE=development -f web/Dockerfile web/
 echo "✓ 前端镜像构建完成: clawhermes-frontend:local"
 
 # 部署前端 k8s 资源
