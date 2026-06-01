@@ -41,8 +41,8 @@ func (m *MockGraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxD
 	return []map[string]interface{}{}, nil
 }
 
-func (m *MockGraphRAG) FullTextSearch(ctx context.Context, query string) ([]interface{}, error) {
-	return []interface{}{}, nil
+func (m *MockGraphRAG) FullTextSearch(ctx context.Context, searchTerm string, limit int) ([]map[string]interface{}, error) {
+	return []map[string]interface{}{}, nil
 }
 
 func (m *MockGraphRAG) Close() error {

@@ -144,10 +144,10 @@ func (g *GraphRAG) GetNeighborNodes(ctx context.Context, nodeID string, maxDepth
 	}
 
 	cypher := fmt.Sprintf(`
-		MATCH (n)<-[r*1..%d]-(neighbor)
+		MATCH (n)-[r*1..%d]->(neighbor)
 		WHERE elementId(n) = $nodeId
 		RETURN neighbor, r, n
-		ORDER BY r.created_at DESC
+		ORDER BY r[0].created_at DESC
 		LIMIT 20
 	`, maxDepth)
 	result, err := g.session.Run(ctx, cypher, map[string]interface{}{

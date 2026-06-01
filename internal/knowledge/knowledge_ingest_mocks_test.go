@@ -42,7 +42,7 @@ func TestMockGraphRAGInterface(t *testing.T) {
 		t.Errorf("expected 0 neighbors, got %d", len(neighbors))
 	}
 
-	results, err := mockGraphRAG.FullTextSearch(ctx, "search")
+	results, err := mockGraphRAG.FullTextSearch(ctx, "search", 10)
 	if err != nil {
 		t.Errorf("expected no error from FullTextSearch, got %v", err)
 	}
