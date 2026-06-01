@@ -121,3 +121,68 @@ func (c *OpenAIClient) Health(ctx context.Context) error {
 
 	return nil
 }
+
+func (c *OpenAIClient) CreateEmbeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = "text-embedding-3-small"
+	}
+
+	openaiReq := map[string]interface{}{
+		"input": req.Input,
+		"model": model,
+	}
+
+	body, err := json.Marshal(openaiReq)
+	if err != nil {
+		c.logger.Error("failed to marshal embedding request", zap.Error(err))
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.endpoint+"/embeddings", bytes.NewReader(body))
+	if err != nil {
+		c.logger.Error("failed to create embedding request", zap.Error(err))
+		return nil, err
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		c.logger.Error("failed to call OpenAI embeddings API", zap.Error(err))
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		c.logger.Error("OpenAI embeddings API error",
+			zap.Int("status", resp.StatusCode),
+			zap.String("body", string(respBody)))
+		return nil, fmt.Errorf("OpenAI embeddings API error: %d", resp.StatusCode)
+	}
+
+	var openaiResp struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+		c.logger.Error("failed to decode embedding response", zap.Error(err))
+		return nil, err
+	}
+
+	result := &EmbeddingResponse{
+		Embeddings: make([][]float32, len(openaiResp.Data)),
+	}
+	for i, d := range openaiResp.Data {
+		result.Embeddings[i] = d.Embedding
+	}
+
+	c.logger.Info("OpenAI embeddings success",
+		zap.String("model", model),
+		zap.Int("count", len(result.Embeddings)))
+	return result, nil
+}
