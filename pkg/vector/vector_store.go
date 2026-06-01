@@ -3,7 +3,10 @@ package vector
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
@@ -291,6 +294,255 @@ func (vs *VectorStore) DeleteCollection(ctx context.Context, collectionName stri
 	}
 	vs.logger.Info("collection deleted successfully")
 	return nil
+}
+
+// KeywordSearch performs TF-IDF based keyword search on the collection.
+// Fetches all documents and ranks them by relevance to query terms.
+func (vs *VectorStore) KeywordSearch(ctx context.Context, collectionName string, query string, topK int) ([]SearchResult, error) {
+	vs.logger.Debug("keyword searching", zap.String("collection", collectionName), zap.String("query", query))
+
+	if err := vs.client.LoadCollection(ctx, collectionName, false); err != nil {
+		return nil, fmt.Errorf("failed to load collection %s: %w", collectionName, err)
+	}
+
+	// Query all documents
+	rows, err := vs.client.Query(
+		ctx,
+		collectionName,
+		[]string{},
+		"id != \"\"",
+		[]string{"id", "content", "source_document", "chunk_index"},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query collection: %w", err)
+	}
+
+	idCol := rows.GetColumn("id")
+	contentCol := rows.GetColumn("content")
+	sourceCol := rows.GetColumn("source_document")
+	chunkIdxCol := rows.GetColumn("chunk_index")
+
+	if idCol == nil || contentCol == nil {
+		return []SearchResult{}, nil
+	}
+
+	terms := tokenize(query)
+	if len(terms) == 0 {
+		return []SearchResult{}, nil
+	}
+
+	type candidate struct {
+		SearchResult
+		termFreqs map[string]int
+		wordCount int
+	}
+
+	n := idCol.Len()
+	candidates := make([]candidate, 0, n)
+
+	for i := 0; i < n; i++ {
+		var id, content, source string
+		var chunkIdx int64
+
+		if v, err := idCol.Get(i); err == nil {
+			if s, ok := v.(string); ok {
+				id = s
+			}
+		}
+		if v, err := contentCol.Get(i); err == nil {
+			if s, ok := v.(string); ok {
+				content = s
+			}
+		}
+		if sourceCol != nil {
+			if v, err := sourceCol.Get(i); err == nil {
+				if s, ok := v.(string); ok {
+					source = s
+				}
+			}
+		}
+		if chunkIdxCol != nil {
+			if v, err := chunkIdxCol.Get(i); err == nil {
+				if idx, ok := v.(int64); ok {
+					chunkIdx = idx
+				}
+			}
+		}
+
+		if id == "" || content == "" {
+			continue
+		}
+
+		docTerms := tokenize(content)
+		tf := make(map[string]int, len(docTerms))
+		for _, t := range docTerms {
+			tf[t]++
+		}
+
+		candidates = append(candidates, candidate{
+			SearchResult: SearchResult{
+				ID:             id,
+				Content:        content,
+				SourceDocument: source,
+				ChunkIndex:     chunkIdx,
+			},
+			termFreqs: tf,
+			wordCount: len(docTerms),
+		})
+	}
+
+	// Calculate IDF: log((N+1)/(df+1)) + 1
+	N := float64(len(candidates))
+	idf := make(map[string]float64, len(terms))
+	for _, t := range terms {
+		df := 0
+		for _, c := range candidates {
+			if c.termFreqs[t] > 0 {
+				df++
+			}
+		}
+		idf[t] = math.Log((N+1)/(float64(df)+1)) + 1
+	}
+
+	// Calculate TF-IDF scores
+	type scored struct {
+		idx   int
+		score float64
+	}
+	scores := make([]scored, 0, len(candidates))
+	for i, c := range candidates {
+		var s float64
+		wc := float64(c.wordCount)
+		if wc == 0 {
+			continue
+		}
+		for _, t := range terms {
+			tf := float64(c.termFreqs[t]) / wc
+			s += tf * idf[t]
+		}
+		if s > 0 {
+			scores = append(scores, scored{i, s})
+		}
+	}
+
+	sort.Slice(scores, func(a, b int) bool { return scores[a].score > scores[b].score })
+
+	if topK > len(scores) {
+		topK = len(scores)
+	}
+	results := make([]SearchResult, topK)
+	for i := 0; i < topK; i++ {
+		r := candidates[scores[i].idx].SearchResult
+		r.Score = float32(scores[i].score)
+		results[i] = r
+	}
+
+	vs.logger.Debug("keyword search completed", zap.Int("results", len(results)))
+	return results, nil
+}
+
+// HybridSearch performs RRF (Reciprocal Rank Fusion) of vector and keyword search results.
+func (vs *VectorStore) HybridSearch(ctx context.Context, collectionName string, queryVector []float32, queryText string, topK int) ([]SearchResult, error) {
+	vs.logger.Debug("hybrid searching", zap.String("collection", collectionName))
+
+	// Run both searches in parallel
+	type result struct {
+		results []SearchResult
+		err     error
+	}
+	vectorCh := make(chan result, 1)
+	keywordCh := make(chan result, 1)
+
+	go func() {
+		r, err := vs.Search(ctx, collectionName, queryVector, topK*2)
+		vectorCh <- result{r, err}
+	}()
+
+	go func() {
+		r, err := vs.KeywordSearch(ctx, collectionName, queryText, topK*2)
+		keywordCh <- result{r, err}
+	}()
+
+	vectorRes := <-vectorCh
+	keywordRes := <-keywordCh
+
+	if vectorRes.err != nil {
+		return nil, fmt.Errorf("vector search failed: %w", vectorRes.err)
+	}
+	if keywordRes.err != nil {
+		return nil, fmt.Errorf("keyword search failed: %w", keywordRes.err)
+	}
+
+	// RRF fusion with k=60 (standard parameter)
+	const k = 60.0
+	rrfScores := make(map[string]float64)
+
+	for rank, r := range vectorRes.results {
+		rrfScores[r.ID] += 1.0 / (k + float64(rank+1))
+	}
+	for rank, r := range keywordRes.results {
+		rrfScores[r.ID] += 1.0 / (k + float64(rank+1))
+	}
+
+	// Collect unique results
+	resultMap := make(map[string]SearchResult)
+	for _, r := range vectorRes.results {
+		resultMap[r.ID] = r
+	}
+	for _, r := range keywordRes.results {
+		if _, exists := resultMap[r.ID]; !exists {
+			resultMap[r.ID] = r
+		}
+	}
+
+	// Sort by RRF score
+	type scored struct {
+		result SearchResult
+		score  float64
+	}
+	scoredResults := make([]scored, 0, len(rrfScores))
+	for id, score := range rrfScores {
+		if r, ok := resultMap[id]; ok {
+			scoredResults = append(scoredResults, scored{r, score})
+		}
+	}
+
+	sort.Slice(scoredResults, func(i, j int) bool {
+		return scoredResults[i].score > scoredResults[j].score
+	})
+
+	if topK > len(scoredResults) {
+		topK = len(scoredResults)
+	}
+	results := make([]SearchResult, topK)
+	for i := 0; i < topK; i++ {
+		results[i] = scoredResults[i].result
+		results[i].Score = float32(scoredResults[i].score)
+	}
+
+	vs.logger.Debug("hybrid search completed", zap.Int("results", len(results)))
+	return results, nil
+}
+
+// tokenize splits text into lowercase word tokens, filtering punctuation.
+func tokenize(text string) []string {
+	text = strings.ToLower(text)
+	var tokens []string
+	var buf strings.Builder
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r > 127 {
+			buf.WriteRune(r)
+		} else {
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+		}
+	}
+	if buf.Len() > 0 {
+		tokens = append(tokens, buf.String())
+	}
+	return tokens
 }
 
 func (vs *VectorStore) Close() error {

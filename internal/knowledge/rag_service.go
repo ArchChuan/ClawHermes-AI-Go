@@ -35,7 +35,7 @@ func NewRAGService(
 type RAGQueryRequest struct {
 	Question  string
 	Workspace string
-	Mode      string // "vector", "graph", "hybrid"
+	Mode      string // "vector", "keyword", "graph", "hybrid"
 	TopK      int
 }
 
@@ -98,6 +98,23 @@ func (rs *RAGService) Query(ctx context.Context, req RAGQueryRequest) (*RAGQuery
 			})
 		}
 
+	case "keyword":
+		keywordResults, err := rs.queryKeyword(ctx, req.Question, collectionName, req.TopK)
+		if err != nil {
+			rs.logger.Error("keyword query failed", zap.Error(err))
+			return nil, fmt.Errorf("keyword query failed: %w", err)
+		}
+		result.VectorResults = keywordResults
+
+		for _, kr := range keywordResults {
+			result.Sources = append(result.Sources, Source{
+				DocumentID: kr.ID,
+				Content:    kr.Content,
+				ChunkIndex: kr.ChunkIndex,
+				Score:      kr.Score,
+			})
+		}
+
 	case "graph":
 		graphEntities, err := rs.queryGraph(ctx, req.Question)
 		if err != nil {
@@ -107,27 +124,27 @@ func (rs *RAGService) Query(ctx context.Context, req RAGQueryRequest) (*RAGQuery
 		result.GraphContext = graphEntities
 
 	case "hybrid":
-		vectorResults, err := rs.queryVector(ctx, req.Question, collectionName, req.TopK)
+		// Hybrid = Vector + Keyword (RRF fusion)
+		queryVector, err := rs.embeddingSvc.EmbedVector(ctx, req.Question)
 		if err != nil {
-			rs.logger.Error("vector query failed", zap.Error(err))
-			return nil, fmt.Errorf("vector query failed: %w", err)
+			rs.logger.Error("failed to embed query", zap.Error(err))
+			return nil, fmt.Errorf("failed to embed query: %w", err)
 		}
-		result.VectorResults = vectorResults
 
-		for _, vr := range vectorResults {
+		hybridResults, err := rs.vectorStore.HybridSearch(ctx, collectionName, queryVector, req.Question, req.TopK)
+		if err != nil {
+			rs.logger.Error("hybrid query failed", zap.Error(err))
+			return nil, fmt.Errorf("hybrid query failed: %w", err)
+		}
+		result.VectorResults = hybridResults
+
+		for _, hr := range hybridResults {
 			result.Sources = append(result.Sources, Source{
-				DocumentID: vr.ID,
-				Content:    vr.Content,
-				ChunkIndex: vr.ChunkIndex,
-				Score:      vr.Score,
+				DocumentID: hr.ID,
+				Content:    hr.Content,
+				ChunkIndex: hr.ChunkIndex,
+				Score:      hr.Score,
 			})
-		}
-
-		graphEntities, err := rs.queryGraph(ctx, req.Question)
-		if err != nil {
-			rs.logger.Warn("graph query failed, using vector only", zap.Error(err))
-		} else {
-			result.GraphContext = graphEntities
 		}
 	}
 
@@ -181,6 +198,17 @@ func (rs *RAGService) queryGraph(ctx context.Context, question string) ([]GraphE
 	}
 
 	return graphEntities, nil
+}
+
+func (rs *RAGService) queryKeyword(ctx context.Context, question string, collection string, topK int) ([]vector.SearchResult, error) {
+	rs.logger.Debug("querying keyword store")
+
+	results, err := rs.vectorStore.KeywordSearch(ctx, collection, question, topK)
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func (rs *RAGService) RetrieveRelevantChunks(ctx context.Context, question string, workspace string, topK int) ([]string, error) {
