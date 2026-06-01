@@ -3,10 +3,21 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"go.uber.org/zap"
 )
+
+// validCypherIdentifier matches safe Neo4j label and relationship type names.
+var validCypherIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func validateCypherIdentifier(s string) error {
+	if !validCypherIdentifier.MatchString(s) {
+		return fmt.Errorf("invalid Cypher identifier: %q", s)
+	}
+	return nil
+}
 
 type GraphRAG struct {
 	driver  neo4j.DriverWithContext
@@ -52,6 +63,10 @@ func (g *GraphRAG) Connect(ctx context.Context) error {
 func (g *GraphRAG) CreateNode(ctx context.Context, label string, properties map[string]interface{}) error {
 	g.logger.Debug("creating node", zap.String("label", label))
 
+	if err := validateCypherIdentifier(label); err != nil {
+		return err
+	}
+
 	cypher := fmt.Sprintf("CREATE (n:%s $props)", label)
 	result, err := g.session.Run(ctx, cypher, map[string]interface{}{
 		"props": properties,
@@ -72,6 +87,10 @@ func (g *GraphRAG) CreateNode(ctx context.Context, label string, properties map[
 
 func (g *GraphRAG) CreateRelationship(ctx context.Context, fromID, toID, relType string) error {
 	g.logger.Debug("creating relationship", zap.String("type", relType))
+
+	if err := validateCypherIdentifier(relType); err != nil {
+		return err
+	}
 
 	cypher := fmt.Sprintf(`
 		MATCH (a {id: $fromId}), (b {id: $toId})

@@ -94,7 +94,9 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 	}
 
 	if len(embedVecs) != len(chunks) {
-		return result, fmt.Errorf("embedding count mismatch: got %d vectors for %d chunks", len(embedVecs), len(chunks))
+		msg := fmt.Sprintf("embedding count mismatch: got %d vectors for %d chunks", len(embedVecs), len(chunks))
+		result.Errors = append(result.Errors, msg)
+		return result, fmt.Errorf("%s", msg)
 	}
 
 	docChunks := make([]vector.DocumentChunk, len(embedVecs))
@@ -208,6 +210,11 @@ func (ki *KnowledgeIngest) IngestBatch(ctx context.Context, requests []IngestDoc
 		}
 		if result != nil {
 			results[i] = *result
+		} else {
+			results[i] = IngestResult{
+				DocumentID: req.DocumentID,
+				Errors:     []string{"internal error: nil result"},
+			}
 		}
 	}
 
