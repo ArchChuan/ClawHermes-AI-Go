@@ -2,12 +2,17 @@ package api
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/handler"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/middleware"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/auth"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/config"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/document"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
@@ -41,6 +46,35 @@ func SetupRouter(
 	// Middleware
 	router.Use(middleware.ErrorHandler(logger))
 	router.Use(middleware.MetricsMiddleware(metrics))
+
+	// Auth setup — only if GitHub OAuth is configured
+	if cfg.GitHubClientID != "" {
+		rsaKey, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM)
+		if err != nil {
+			logger.Warn("JWT private key parse failed, auth routes disabled", zap.Error(err))
+		} else {
+			jwtSvc := auth.NewJWTService(rsaKey)
+			ghClient := auth.NewGitHubClient(cfg.GitHubClientID, cfg.GitHubClientSecret, "", "")
+			authHandler := handler.NewAuthHandler(handler.AuthHandlerDeps{
+				GitHubClient: ghClient,
+				JWTService:   jwtSvc,
+				TokenStore:   nil, // TODO Plan 3: inject pgxpool-backed store
+				OnboardSvc:   nil, // TODO Plan 3: inject pgxpool-backed service
+				Logger:       logger,
+				CallbackURL:  "http://localhost:" + cfg.Port + "/auth/github/callback",
+				GlobalAdmin:  cfg.GlobalAdminGitHubLogin,
+			})
+			authRoutes := router.Group("/auth")
+			{
+				authRoutes.GET("/github", authHandler.GitHubLogin)
+				authRoutes.GET("/github/callback", authHandler.GitHubCallback)
+				authRoutes.POST("/register", authHandler.Register)
+				authRoutes.POST("/refresh", authHandler.Refresh)
+				authRoutes.POST("/logout", authHandler.Logout)
+				authRoutes.GET("/me", authHandler.Me)
+			}
+		}
+	}
 
 	// Prometheus scrape endpoint
 	router.GET("/metrics", gin.WrapH(metrics.GetHandler()))
@@ -140,4 +174,19 @@ func SetupRouter(
 	mcpHandler.RegisterRoutes(router)
 
 	return router
+}
+
+func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
+	if pemStr == "" {
+		return nil, fmt.Errorf("JWT_PRIVATE_KEY_PEM is empty")
+	}
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse RSA key: %w", err)
+	}
+	return key, nil
 }
