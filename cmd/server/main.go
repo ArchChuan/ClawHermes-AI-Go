@@ -15,7 +15,10 @@ import (
 	harnesspkg "github.com/byteBuilderX/ClawHermes-AI-Go/internal/harness"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/hermes"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/migration"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/orchestrator"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/postgres"
+	pkgredis "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/redis"
 	"go.uber.org/zap"
 )
 
@@ -30,6 +33,26 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Fatal("Failed to load config", zap.Error(err))
+	}
+
+	// Initialize PostgreSQL
+	ctx := context.Background()
+	pgPool, err := postgres.New(ctx, cfg.PostgresURL, logger)
+	if err != nil {
+		logger.Fatal("failed to connect postgres", zap.Error(err))
+	}
+	defer pgPool.Close()
+
+	// Initialize Redis
+	redisClient, err := pkgredis.New(ctx, cfg.RedisURL, logger)
+	if err != nil {
+		logger.Fatal("failed to connect redis", zap.Error(err))
+	}
+	defer redisClient.Close()
+
+	// Run public schema migration
+	if err := migration.RunPublicSchema(cfg.PostgresURL, "internal/migration/sql", logger); err != nil {
+		logger.Fatal("migration failed", zap.Error(err))
 	}
 
 	// Create Harness for unified component lifecycle management
@@ -166,7 +189,7 @@ func main() {
 	}
 
 	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Capture signals

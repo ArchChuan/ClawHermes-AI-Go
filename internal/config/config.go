@@ -19,6 +19,8 @@ type Config struct {
 	Neo4jPassword string
 	OtelEndpoint  string
 	OpenAIAPIKey  string
+	PostgresURL   string
+	RedisURL      string
 }
 
 type Services struct {
@@ -37,6 +39,8 @@ func Load() (*Config, error) {
 		Neo4jPassword: getEnv("NEO4J_PASSWORD", "password"),
 		OtelEndpoint:  getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
 		OpenAIAPIKey:  getEnv("OPENAI_API_KEY", ""),
+		PostgresURL:   getEnv("POSTGRES_URL", "postgres://clawhermes:clawhermes@localhost:5432/clawhermes"),
+		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379"),
 	}, nil
 }
 
