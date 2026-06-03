@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/model"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,11 +28,13 @@ var _ PgxPool = (*pgxpool.Pool)(nil)
 
 type AdminHandler struct {
 	db     PgxPool
+	pool   *pgxpool.Pool
 	logger *zap.Logger
 }
 
 func NewAdminHandler(db PgxPool, logger *zap.Logger) *AdminHandler {
-	return &AdminHandler{db: db, logger: logger}
+	pool, _ := db.(*pgxpool.Pool)
+	return &AdminHandler{db: db, pool: pool, logger: logger}
 }
 
 // ListTenants GET /admin/tenants?status=active&page=1&page_size=20
@@ -52,15 +55,15 @@ func (h *AdminHandler) ListTenants(c *gin.Context) {
 	var err error
 
 	if status != "" {
-		totalRow = h.db.QueryRow(context.Background(),
+		totalRow = h.db.QueryRow(c.Request.Context(),
 			"SELECT COUNT(*) FROM public.tenants WHERE deleted_at IS NULL AND status=$1", status)
-		rows, err = h.db.Query(context.Background(),
+		rows, err = h.db.Query(c.Request.Context(),
 			"SELECT id, name, slug, plan, status, created_at FROM public.tenants WHERE deleted_at IS NULL AND status=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
 			status, pageSize, offset)
 	} else {
-		totalRow = h.db.QueryRow(context.Background(),
+		totalRow = h.db.QueryRow(c.Request.Context(),
 			"SELECT COUNT(*) FROM public.tenants WHERE deleted_at IS NULL")
-		rows, err = h.db.Query(context.Background(),
+		rows, err = h.db.Query(c.Request.Context(),
 			"SELECT id, name, slug, plan, status, created_at FROM public.tenants WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT $1 OFFSET $2",
 			pageSize, offset)
 	}
@@ -97,7 +100,7 @@ func (h *AdminHandler) ListTenants(c *gin.Context) {
 func (h *AdminHandler) GetTenant(c *gin.Context) {
 	id := c.Param("id")
 	var t model.TenantResponse
-	err := h.db.QueryRow(context.Background(),
+	err := h.db.QueryRow(c.Request.Context(),
 		"SELECT id, name, slug, plan, status, created_at, deleted_at FROM public.tenants WHERE id=$1", id,
 	).Scan(&t.ID, &t.Name, &t.Slug, &t.Plan, &t.Status, &t.CreatedAt, &t.DeletedAt)
 	if err != nil {
@@ -117,7 +120,7 @@ func (h *AdminHandler) CreateTenant(c *gin.Context) {
 	}
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	_, err := h.db.Exec(context.Background(),
+	_, err := h.db.Exec(c.Request.Context(),
 		"INSERT INTO public.tenants(id, name, slug, plan, status, created_at) VALUES($1,$2,$3,$4,$5,$6)",
 		id, req.Name, req.Slug, req.Plan, req.Status, now)
 	if err != nil {
@@ -125,6 +128,15 @@ func (h *AdminHandler) CreateTenant(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "create failed"})
 		return
 	}
+
+	if h.pool != nil {
+		if err := tenantdb.ProvisionTenantSchema(c.Request.Context(), h.pool, id); err != nil {
+			h.logger.Error("provision tenant schema failed", zap.String("tenant_id", id), zap.Error(err))
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "schema provision failed"})
+			return
+		}
+	}
+
 	c.JSON(http.StatusCreated, model.TenantResponse{
 		ID: id, Name: req.Name, Slug: req.Slug,
 		Plan: req.Plan, Status: req.Status, CreatedAt: now,
@@ -139,7 +151,7 @@ func (h *AdminHandler) UpdateTenant(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: err.Error()})
 		return
 	}
-	tag, err := h.db.Exec(context.Background(),
+	tag, err := h.db.Exec(c.Request.Context(),
 		"UPDATE public.tenants SET plan=COALESCE(NULLIF($1,''), plan), status=COALESCE(NULLIF($2,''), status) WHERE id=$3 AND deleted_at IS NULL",
 		req.Plan, req.Status, id)
 	if err != nil {
@@ -158,7 +170,7 @@ func (h *AdminHandler) UpdateTenant(c *gin.Context) {
 func (h *AdminHandler) DeleteTenant(c *gin.Context) {
 	id := c.Param("id")
 	now := time.Now().UTC()
-	tag, err := h.db.Exec(context.Background(),
+	tag, err := h.db.Exec(c.Request.Context(),
 		"UPDATE public.tenants SET deleted_at=$1 WHERE id=$2 AND deleted_at IS NULL", now, id)
 	if err != nil {
 		h.logger.Error("delete tenant failed", zap.Error(err))

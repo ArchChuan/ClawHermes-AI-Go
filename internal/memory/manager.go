@@ -3,12 +3,15 @@ package memory
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
+
+var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // MemoryManager orchestrates all memory systems
 type MemoryManager struct {
@@ -60,6 +63,9 @@ func NewMemoryManager(
 func (m *MemoryManager) execTenant(ctx context.Context, tenantID string, fn func(ctx context.Context, tx pgx.Tx) error) error {
 	if m.pool == nil || tenantID == "" {
 		return nil
+	}
+	if !uuidRE.MatchString(tenantID) {
+		return fmt.Errorf("memory: invalid tenant_id format")
 	}
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {

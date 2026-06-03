@@ -244,12 +244,25 @@ func (h *MemoryHandler) AddMemory(c *gin.Context) {
 
 // GetMemory retrieves a memory entry by ID
 func (h *MemoryHandler) GetMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
 
 	ctx := c.Request.Context()
 	entry, err := h.manager.Get(ctx, id)
 	if err != nil {
 		h.logger.Warn("memory entry not found", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "memory entry not found",
+		})
+		return
+	}
+
+	if entry.TenantID != tenantID {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
 			Code:    http.StatusNotFound,
 			Message: "memory entry not found",
@@ -363,9 +376,23 @@ func (h *MemoryHandler) SearchMemory(c *gin.Context) {
 
 // DeleteMemory deletes a memory entry
 func (h *MemoryHandler) DeleteMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
 
 	ctx := c.Request.Context()
+	entry, err := h.manager.Get(ctx, id)
+	if err != nil || entry.TenantID != tenantID {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "memory entry not found",
+		})
+		return
+	}
+
 	if err := h.manager.Delete(ctx, id); err != nil {
 		h.logger.Warn("failed to delete memory entry", zap.String("id", id), zap.Error(err))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{

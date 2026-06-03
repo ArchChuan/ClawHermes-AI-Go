@@ -26,8 +26,9 @@ func setupTenantHandlerRouter(h *TenantHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	inject := injectTenant("tenant-abc")
+	injectAdmin := func(c *gin.Context) { c.Set("auth.role", "admin"); c.Next() }
 	r.GET("/tenant/members", inject, h.ListMembers)
-	r.POST("/tenant/members/invite", inject, h.InviteMember)
+	r.POST("/tenant/members/invite", inject, injectAdmin, h.InviteMember)
 	r.DELETE("/tenant/members/:user_id", inject, h.RemoveMember)
 	return r
 }

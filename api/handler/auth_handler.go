@@ -23,13 +23,14 @@ const (
 
 // AuthHandlerDeps groups all dependencies for AuthHandler.
 type AuthHandlerDeps struct {
-	GitHubClient *auth.GitHubClient
-	JWTService   *auth.JWTService
-	TokenStore   *auth.TokenStore
-	OnboardSvc   *auth.OnboardService
-	Logger       *zap.Logger
-	CallbackURL  string
-	GlobalAdmin  string
+	GitHubClient  *auth.GitHubClient
+	JWTService    *auth.JWTService
+	TokenStore    *auth.TokenStore
+	OnboardSvc    *auth.OnboardService
+	Logger        *zap.Logger
+	CallbackURL   string
+	GlobalAdmin   string
+	SecureCookies bool
 }
 
 // AuthHandler implements the /auth/* HTTP routes.
@@ -50,7 +51,7 @@ func (h *AuthHandler) GitHubLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate state"})
 		return
 	}
-	c.SetCookie("oauth_state", state, 300, "/", "", false, true)
+	c.SetCookie("oauth_state", state, 300, "/", "", h.deps.SecureCookies, true)
 	redirectURL := "https://github.com/login/oauth/authorize" +
 		"?client_id=" + h.deps.GitHubClient.ClientID() +
 		"&redirect_uri=" + h.deps.CallbackURL +
@@ -69,7 +70,7 @@ func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid oauth state"})
 		return
 	}
-	c.SetCookie("oauth_state", "", -1, "/", "", false, true)
+	c.SetCookie("oauth_state", "", -1, "/", "", h.deps.SecureCookies, true)
 
 	code := c.Query("code")
 	if code == "" {
@@ -189,7 +190,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	setRefreshCookie(c, rawRT)
+	h.setRefreshCookie(c, rawRT)
 	c.JSON(http.StatusCreated, gin.H{"access_token": accessJWT, "tenant_id": tenantID})
 }
 
@@ -233,7 +234,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	setRefreshCookie(c, newRawRT)
+	h.setRefreshCookie(c, newRawRT)
 	c.JSON(http.StatusOK, gin.H{"access_token": accessJWT})
 }
 
@@ -245,7 +246,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	if err == nil && rawRT != "" && h.deps.TokenStore != nil {
 		_ = h.deps.TokenStore.Revoke(ctx, rawRT)
 	}
-	setRefreshCookie(c, "")
+	h.setRefreshCookie(c, "")
 	c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 }
 
@@ -296,12 +297,12 @@ func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role
 	return rawRT, accessJWT, nil
 }
 
-func setRefreshCookie(c *gin.Context, value string) {
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string) {
 	maxAge := int(refreshTokenTTL.Seconds())
 	if value == "" {
 		maxAge = -1
 	}
-	c.SetCookie(refreshTokenCookie, value, maxAge, "/auth/refresh", "", false, true)
+	c.SetCookie(refreshTokenCookie, value, maxAge, "/auth/refresh", "", h.deps.SecureCookies, true)
 }
 
 func randomState() (string, error) {

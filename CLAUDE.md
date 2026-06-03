@@ -82,11 +82,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Do NOT modify config/prod.yaml, internal/auth/* without explicit approval.
 - No destructive operations without confirmation.
 
----
-
-## Enterprise-Grade Development Standards
-
-### Common CLI Operations & Commands
+## Common CLI Operations & Commands
 - All terminal operations must be scripted and idempotent for production use
 - Use shell scripts for deployment, testing, and maintenance tasks
 - Document all custom commands in project README with examples
@@ -94,7 +90,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Maintain command version compatibility; breaking changes require migration plan
 - Log all CLI command execution with timestamp, user, and exit code
 
-### Code Style & Standards
+## Code Style & Standards
 - Follow Google Go style guide strictly; use `gofmt` and `golangci-lint` for enforcement
 - Consistent naming: PascalCase for exported, camelCase for unexported identifiers
 - Maximum line length: 120 characters; break long lines strategically
@@ -103,7 +99,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - All public functions require comments explaining purpose and parameters
 - Cyclomatic complexity: max 10 per function (measure with `gocyclo`)
 
-### UI & Content Design Guidelines
+## UI & Content Design Guidelines
 - All UI components must meet WCAG 2.1 AA accessibility standards (automatic testing required)
 - Use semantic HTML5 and ARIA labels; no div-spam for layout
 - Responsive design mandatory: test on desktop, tablet, mobile viewports
@@ -112,7 +108,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Dark mode and high-contrast mode support mandatory
 - Color blindness testing: use tools like Coblis or Color Oracle
 
-### Frontend Components & Interaction Patterns
+## Frontend Components & Interaction Patterns
 - Component prop interfaces must be TypeScript typed and JSDoc documented
 - All interactive elements require full keyboard navigation support (Tab, Enter, Escape, Arrow keys)
 - Consistent loading states: skeleton screens, spinners, or progress indicators
@@ -121,7 +117,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Implement debouncing/throttling for high-frequency events (scroll, resize, input)
 - Maximum render time: 16ms for 60fps (use React DevTools Profiler)
 
-### State Management
+## State Management
 - Centralize state; avoid prop drilling beyond 3 levels (use context or global state)
 - Immutable state updates enforced: leverage immer, Zustand, or Redux patterns
 - Implement transaction-like patterns for multi-step operations with rollback
@@ -130,7 +126,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - State versioning: handle backwards compatibility for persisted state
 - Implement state debugging: time-travel debugging for development, state snapshots for monitoring
 
-### Logging Standards
+## Logging Standards
 - Use Zap for structured logging exclusively (no fmt.Print, no printf)
 - Log levels strictly enforced:
   - DEBUG: development details, variable values, function entry/exit
@@ -144,7 +140,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Structured log output: JSON format for production parsing
 - Log retention: minimum 30 days, configurable per environment
 
-### Error Handling Patterns
+## Error Handling Patterns
 - Distinguish error types: system errors (500), client errors (400), not found (404)
 - Wrap errors with context: `fmt.Errorf("operation_name: %w", err)` for trace chains
 - Implement exponential backoff with jitter for transient failures: base 100ms, max 10s
@@ -155,7 +151,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Error metrics: count by type, log latency for errors
 - Custom error types for domain-specific failures (not just string errors)
 
-### Feature Flags (Gradual Rollout & Experimentation)
+## Feature Flags (Gradual Rollout & Experimentation)
 - All experimental features must use feature flags in centralized config store
 - Flag storage: Redis or database with sub-second evaluation latency
 - Lazy-load and cache flags: refresh every 5-30 seconds
@@ -165,7 +161,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Flag monitoring: track adoption, performance impact, error rate changes
 - Clean up: remove flags 30 days after full rollout (add to backlog explicitly)
 
-### Debugging Guide
+## Debugging Guide
 - Enable debug logging: set `LOG_LEVEL=debug` or `GODEBUG=...` environment variables
 - Use structured log queries to trace request flow across all services
 - Profiling (staging/development only):
@@ -177,7 +173,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Breakpoint debugging: use Delve (`dlv`) for step-through debugging in development
 - Log aggregation: centralize logs in ELK, Datadog, or Cloud Logging
 
-### FAQ & Troubleshooting
+## FAQ & Troubleshooting
 - **Memory leaks in goroutines**: Always cancel contexts, close channels, use defer for cleanup
   ```go
   defer cancel()
@@ -190,7 +186,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - **Connection pool exhaustion**: Monitor active connections, implement connection pooling, set max connections
 - **Out of memory errors**: Profile heap, check for leaks, tune garbage collection
 
-### Pull Request Standards (Enterprise-Grade Code Review)
+## Pull Request Standards (Enterprise-Grade Code Review)
 - PR title format: `[type](scope): description` (e.g., `[feat](auth): add OIDC support`)
   - Types: feat, fix, refactor, perf, test, docs, chore, ci
 - Description must include:
@@ -208,7 +204,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Minimum review duration: 24 hours for critical code, 4 hours for others
 - Archive branch after merge: keep history for 7 days then delete
 
-### Code Review Process
+## Code Review Process
 - Reviewers focus on: correctness, security, maintainability, performance, testing
 - Automated checks first: linting, type checking, test coverage (no manual review of style issues)
 - Review comments must be specific, actionable, and kind (assume good intent)
@@ -217,7 +213,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Consider performance implications: check for N+1 queries, memory allocations, CPU spikes
 - Security review: input validation, SQL injection, authentication, authorization, secrets
 
-### Testing & Coverage Requirements
+## Testing & Coverage Requirements
 - Unit test coverage minimum: 80% of logic code (exclude generated code, main functions)
 - Integration tests: cover critical paths, external dependencies, error scenarios
 - Test command: `go test -v -race -timeout 30s ./...`
@@ -227,7 +223,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Test data: seed deterministically, clean up after each test
 - Flaky test reporting: log and track; fix within 1 sprint
 
-### Documentation & ADRs (Architecture Decision Records)
+## Documentation & ADRs (Architecture Decision Records)
 - README: project overview, quick start, architecture diagram, contribution guide
 - API documentation: endpoints, request/response schemas, error codes (use OpenAPI/Swagger)
 - Architecture Decision Records (ADRs): stored in `docs/adr/` with decision rationale
@@ -236,7 +232,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Runbook for oncall: how to debug, escalate, and recover from failures
 - Changelog: maintain CHANGELOG.md with user-facing changes per release
 
-### Dependency Management
+## Dependency Management
 - Lock all dependencies with exact versions: use go.mod (no `@latest`)
 - Regular dependency updates: weekly scan, monthly updates, quarterly major versions
 - Security vulnerability scanning: Dependabot, Snyk, or Go's `go list -json -m all`
@@ -244,7 +240,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Breaking changes in dependencies: plan migration, add to sprint planning
 - Licenses: track all dependencies; ensure compatible with project license (Apache 2.0 preferred)
 
-### Monitoring & Alerting
+## Monitoring & Alerting
 - Metrics collection: Prometheus-compatible format (counters, gauges, histograms)
 - Key metrics: request latency (p50, p95, p99), error rate, throughput, resource utilization
 - Dashboards: real-time view of service health, key business metrics
@@ -253,7 +249,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Incident response: document runbook, post-mortem within 48 hours
 - Log aggregation: centralize logs for searchability (ELK, Loki, Cloud Logging)
 
-### Secrets & Security Management
+## Secrets & Security Management
 - Store secrets in HashiCorp Vault or AWS Secrets Manager (never in git or env files)
 - Rotation: rotate keys monthly (database passwords, API tokens, encryption keys)
 - Least privilege: grant minimum necessary permissions to services
@@ -262,7 +258,7 @@ Detailed project facts and task-specific rules are in the following standardized
 - Code scanning: Sonarqube or CodeQL for security vulnerabilities
 - Encryption: TLS 1.2+ for transit, AES-256 for data at rest
 
-### Release & Deployment Process
+## Release & Deployment Process
 - Version tagging: semantic versioning (MAJOR.MINOR.PATCH)
 - Release checklist: test plan, changelog, deployment steps, rollback plan
 - Canary deployment: gradual rollout starting with 5% traffic
@@ -271,77 +267,4 @@ Detailed project facts and task-specific rules are in the following standardized
 - Rollback strategy: keep previous 3 versions available for quick rollback
 - Release notes: user-facing summary of features, fixes, deprecations
 - Communication: notify stakeholders of deployment schedule and expected impact
-
----
-
-## Development Guidelines & Best Practices
-
-### Common CLI Operations & Commands
-- All terminal operations must be scripted and idempotent when possible
-- Use shell scripts for repetitive deployment and testing tasks
-- Document all custom commands in project README
 - Avoid ad-hoc manual steps in production pipelines
-
-### Code Style & Standards
-- Follow Google Go style guide and internal conventions strictly
-- Use consistent naming: CamelCase for exported, snake_case for unexported
-- Maximum line length: 120 characters
-- Organize imports: std lib → third-party → internal
-- No commented-out code; use git history instead
-
-### UI & Content Design Guidelines
-- Ensure all UI components follow accessibility standards (WCAG 2.1 AA)
-- Use semantic HTML and ARIA labels where appropriate
-- Maintain responsive design for mobile-first approach
-- Document all design tokens and component APIs
-
-### Frontend Components & Interaction Patterns
-- Component prop interfaces must be fully documented
-- All interactive elements require keyboard navigation support
-- Implement consistent loading and error states across all components
-- Use controlled components for form inputs
-
-### State Management
-- Centralize application state; avoid prop drilling beyond 2 levels
-- Immutable state updates only; never mutate directly
-- Use transaction-like patterns for multi-step state changes
-- Clear state ownership: module responsible for initializing and invalidating its slice
-
-### Logging Standards
-- Use Zap for structured logging exclusively (no fmt.Print)
-- Log levels: DEBUG (dev details) → INFO (progress) → WARN (recoverable) → ERROR (failures) → FATAL (crashes)
-- Include context fields: request_id, user_id, tenant_id, operation
-- Never log sensitive data (passwords, tokens, PII)
-
-### Error Handling Patterns
-- Distinguish between system errors (log + retry) and client errors (return 4xx)
-- Wrap errors with context: use `fmt.Errorf("operation: %w", err)`
-- Implement exponential backoff for transient failures
-- Always provide actionable error messages to callers
-
-### Feature Flags
-- All experimental or gradual-rollout features must use feature flags
-- Store flags in a centralized config store (Redis/DB); lazy-load and cache
-- Flag evaluation must not block critical path (fail open)
-- Document flag lifecycle: who owns it, activation date, removal date
-
-### Debugging Guide
-- Enable debug logging: set `LOG_LEVEL=debug` environment variable
-- Use structured log queries to trace request flow across services
-- Profiling: use pprof for CPU/memory analysis in staging only
-- Trace transaction IDs end-to-end through all service logs
-
-### FAQ & Troubleshooting
-- **Common Issue**: Memory leaks in goroutines → Always cancel contexts, close channels
-- **Common Issue**: Race conditions in tests → Run `go test -race` before commit
-- **Common Issue**: Flaky integration tests → Isolate test data, use deterministic seeding
-- **Common Issue**: Slow database queries → Index common filters, use EXPLAIN ANALYZE
-
-### Pull Request Standards
-- PR title: concise, imperative mood (e.g., "Add tenant isolation to auth", not "Updates auth")
-- Description must include: what, why, how-to-test, any breaking changes
-- Linked issues/tickets in description
-- Self-review changes before requesting review
-- Require approval from code owner before merge
-- Run full test suite locally before pushing: `go test ./...`
-- No merges while CI pipeline is failing

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -45,7 +44,7 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	var total int
-	if err := h.db.QueryRow(context.Background(),
+	if err := h.db.QueryRow(c.Request.Context(),
 		"SELECT COUNT(*) FROM public.tenant_members WHERE tenant_id=$1", tenantID,
 	).Scan(&total); err != nil {
 		h.logger.Error("count members failed", zap.Error(err))
@@ -53,7 +52,7 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(context.Background(),
+	rows, err := h.db.Query(c.Request.Context(),
 		`SELECT tm.user_id, u.email, tm.role, tm.created_at
 		 FROM public.tenant_members tm
 		 JOIN public.users u ON u.id = tm.user_id
@@ -88,6 +87,15 @@ func (h *TenantHandler) InviteMember(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Code: 401, Message: "tenant_id missing"})
 		return
 	}
+
+	// only admin or owner may invite
+	roleVal, _ := c.Get("auth.role")
+	roleStr, _ := roleVal.(string)
+	if roleStr != "admin" && roleStr != "owner" {
+		c.JSON(http.StatusForbidden, model.ErrorResponse{Code: 403, Message: "admin or owner role required"})
+		return
+	}
+
 	var req model.InviteMemberRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: err.Error()})
@@ -106,7 +114,7 @@ func (h *TenantHandler) InviteMember(c *gin.Context) {
 	invitationID := uuid.New().String()
 	expiresAt := time.Now().UTC().Add(72 * time.Hour)
 
-	_, err := h.db.Exec(context.Background(),
+	_, err := h.db.Exec(c.Request.Context(),
 		`INSERT INTO public.invitations(id, tenant_id, email, role, token_hash, expires_at, created_at)
 		 VALUES($1, $2, $3, $4, $5, $6, $7)`,
 		invitationID, tenantID, req.Email, req.Role, tokenHash, expiresAt, time.Now().UTC())
@@ -139,7 +147,7 @@ func (h *TenantHandler) UpdateMemberRole(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: err.Error()})
 		return
 	}
-	tag, err := h.db.Exec(context.Background(),
+	tag, err := h.db.Exec(c.Request.Context(),
 		"UPDATE public.tenant_members SET role=$1 WHERE tenant_id=$2 AND user_id=$3",
 		req.Role, tenantID, userID)
 	if err != nil {
@@ -162,7 +170,7 @@ func (h *TenantHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 	userID := c.Param("user_id")
-	tag, err := h.db.Exec(context.Background(),
+	tag, err := h.db.Exec(c.Request.Context(),
 		"DELETE FROM public.tenant_members WHERE tenant_id=$1 AND user_id=$2",
 		tenantID, userID)
 	if err != nil {
@@ -185,7 +193,7 @@ func (h *TenantHandler) GetSettings(c *gin.Context) {
 		return
 	}
 	var settingsJSON []byte
-	err := h.db.QueryRow(context.Background(),
+	err := h.db.QueryRow(c.Request.Context(),
 		"SELECT settings FROM public.tenants WHERE id=$1 AND deleted_at IS NULL", tenantID,
 	).Scan(&settingsJSON)
 	if err != nil {
@@ -221,7 +229,7 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: "invalid settings"})
 		return
 	}
-	tag, err := h.db.Exec(context.Background(),
+	tag, err := h.db.Exec(c.Request.Context(),
 		"UPDATE public.tenants SET settings=$1 WHERE id=$2 AND deleted_at IS NULL",
 		settingsJSON, tenantID)
 	if err != nil {

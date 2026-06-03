@@ -26,6 +26,7 @@ type Config struct {
 	JWTPrivateKeyPEM         string
 	GlobalAdminGitHubLogin   string
 	FrontendURL              string
+	SecureCookies            bool
 }
 
 type Services struct {
@@ -51,6 +52,7 @@ func Load() (*Config, error) {
 		JWTPrivateKeyPEM:         getEnv("JWT_PRIVATE_KEY_PEM", ""),
 		GlobalAdminGitHubLogin:   getEnv("GLOBAL_ADMIN_GITHUB_LOGIN", ""),
 		FrontendURL:              getEnv("FRONTEND_URL", "http://localhost:3000"),
+		SecureCookies:            getEnv("SECURE_COOKIES", "") == "true",
 	}, nil
 }
 

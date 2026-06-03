@@ -12,7 +12,7 @@ import (
 func TestRequireGlobalAdmin_allowed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/", func(c *gin.Context) { c.Set("global_role", "global_admin") }, middleware.RequireGlobalAdmin(), func(c *gin.Context) {
+	r.GET("/", func(c *gin.Context) { c.Set("auth.global_role", "global_admin") }, middleware.RequireGlobalAdmin(), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestRequireGlobalAdmin_denied(t *testing.T) {
 func TestRequireTenantRole_ownerAllowedForAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/", func(c *gin.Context) { c.Set("tenant_member_role", "owner") }, middleware.RequireTenantRole("admin"), func(c *gin.Context) {
+	r.GET("/", func(c *gin.Context) { c.Set("auth.role", "owner") }, middleware.RequireTenantRole("admin"), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestRequireTenantRole_ownerAllowedForAdmin(t *testing.T) {
 func TestRequireTenantRole_memberDeniedForAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/", func(c *gin.Context) { c.Set("tenant_member_role", "member") }, middleware.RequireTenantRole("admin"), func(c *gin.Context) {
+	r.GET("/", func(c *gin.Context) { c.Set("auth.role", "member") }, middleware.RequireTenantRole("admin"), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()

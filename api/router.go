@@ -62,13 +62,14 @@ func SetupRouter(
 			tokenStore := auth.NewTokenStore(db, rdb)
 			onboardSvc := auth.NewOnboardService(db)
 			authHandler := handler.NewAuthHandler(handler.AuthHandlerDeps{
-				GitHubClient: ghClient,
-				JWTService:   jwtSvc,
-				TokenStore:   tokenStore,
-				OnboardSvc:   onboardSvc,
-				Logger:       logger,
-				CallbackURL:  "http://localhost:" + cfg.Port + "/auth/github/callback",
-				GlobalAdmin:  cfg.GlobalAdminGitHubLogin,
+				GitHubClient:  ghClient,
+				JWTService:    jwtSvc,
+				TokenStore:    tokenStore,
+				OnboardSvc:    onboardSvc,
+				Logger:        logger,
+				CallbackURL:   "http://localhost:" + cfg.Port + "/auth/github/callback",
+				GlobalAdmin:   cfg.GlobalAdminGitHubLogin,
+				SecureCookies: cfg.SecureCookies,
 			})
 			authRoutes := router.Group("/auth")
 			{
@@ -79,10 +80,34 @@ func SetupRouter(
 				authRoutes.POST("/logout", authHandler.Logout)
 				authRoutes.GET("/me", authHandler.Me)
 			}
+
+			// Admin routes — require JWT + global_admin role
+			if db != nil {
+				jwtMW := auth.JWTMiddleware(jwtSvc)
+				adminHandler := handler.NewAdminHandler(db, logger)
+				tenantHandler := handler.NewTenantHandler(db, logger, cfg.FrontendURL)
+
+				adminGroup := router.Group("/admin", jwtMW, middleware.RequireGlobalAdmin())
+				{
+					adminGroup.GET("/tenants", adminHandler.ListTenants)
+					adminGroup.POST("/tenants", adminHandler.CreateTenant)
+					adminGroup.GET("/tenants/:id", adminHandler.GetTenant)
+					adminGroup.PATCH("/tenants/:id", adminHandler.UpdateTenant)
+					adminGroup.DELETE("/tenants/:id", adminHandler.DeleteTenant)
+				}
+
+				tenantGroup := router.Group("/tenant", jwtMW, middleware.RequireTenantRole("member"))
+				{
+					tenantGroup.GET("/members", tenantHandler.ListMembers)
+					tenantGroup.POST("/members/invite", tenantHandler.InviteMember)
+					tenantGroup.PATCH("/members/:user_id/role", tenantHandler.UpdateMemberRole)
+					tenantGroup.DELETE("/members/:user_id", tenantHandler.RemoveMember)
+					tenantGroup.GET("/settings", tenantHandler.GetSettings)
+					tenantGroup.PATCH("/settings", tenantHandler.UpdateSettings)
+				}
+			}
 		}
 	}
-
-	// Prometheus scrape endpoint
 	router.GET("/metrics", gin.WrapH(metrics.GetHandler()))
 
 	// Health check
@@ -178,31 +203,6 @@ func SetupRouter(
 
 	// MCP endpoints
 	mcpHandler.RegisterRoutes(router)
-
-	// Admin routes — global admin only
-	if db != nil {
-		adminHandler := handler.NewAdminHandler(db, logger)
-		tenantHandler := handler.NewTenantHandler(db, logger, cfg.FrontendURL)
-
-		adminGroup := router.Group("/admin", middleware.RequireGlobalAdmin())
-		{
-			adminGroup.GET("/tenants", adminHandler.ListTenants)
-			adminGroup.POST("/tenants", adminHandler.CreateTenant)
-			adminGroup.GET("/tenants/:id", adminHandler.GetTenant)
-			adminGroup.PATCH("/tenants/:id", adminHandler.UpdateTenant)
-			adminGroup.DELETE("/tenants/:id", adminHandler.DeleteTenant)
-		}
-
-		tenantGroup := router.Group("/tenant", middleware.RequireTenantRole("member"))
-		{
-			tenantGroup.GET("/members", tenantHandler.ListMembers)
-			tenantGroup.POST("/members/invite", tenantHandler.InviteMember)
-			tenantGroup.PATCH("/members/:user_id/role", tenantHandler.UpdateMemberRole)
-			tenantGroup.DELETE("/members/:user_id", tenantHandler.RemoveMember)
-			tenantGroup.GET("/settings", tenantHandler.GetSettings)
-			tenantGroup.PATCH("/settings", tenantHandler.UpdateSettings)
-		}
-	}
 
 	return router
 }
