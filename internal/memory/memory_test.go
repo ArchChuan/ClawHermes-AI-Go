@@ -327,7 +327,7 @@ func TestNewMemoryManager(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := DefaultMemoryConfig()
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected manager to be non-nil")

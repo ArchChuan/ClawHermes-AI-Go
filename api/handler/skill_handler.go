@@ -55,7 +55,7 @@ func (h *SkillHandler) CreateSkill(c *gin.Context) {
 		}
 	}
 
-	h.registry.Register(id, s)
+	h.registry.Register(c.Request.Context(), id, s)
 	h.logger.Info("skill created", zap.String("id", id), zap.String("name", req.Name))
 
 	c.JSON(http.StatusCreated, model.SkillResponse{
@@ -183,7 +183,7 @@ func (h *SkillHandler) UpdateSkill(c *gin.Context) {
 func (h *SkillHandler) DeleteSkill(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := h.registry.Remove(id); err != nil {
+	if err := h.registry.Remove(c.Request.Context(), id); err != nil {
 		h.logger.Warn("skill not found or removal failed", zap.String("id", id), zap.Error(err))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
 			Code:    http.StatusNotFound,

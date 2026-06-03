@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/model"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -19,6 +19,7 @@ type AgentHandler struct {
 	agentRegistry *agent.Registry
 	logger        *zap.Logger
 	gateway       *llmgateway.Gateway
+	metrics       observability.MetricsProvider
 }
 
 type CreateAgentRequest struct {
@@ -64,16 +65,21 @@ type AgentExecutionResult struct {
 	Error      string                 `json:"error,omitempty"`
 }
 
-func NewAgentHandler(agentRegistry *agent.Registry, logger *zap.Logger, gateway *llmgateway.Gateway) *AgentHandler {
+func NewAgentHandler(agentRegistry *agent.Registry, logger *zap.Logger, gateway *llmgateway.Gateway, metrics observability.MetricsProvider) *AgentHandler {
 	return &AgentHandler{
 		agentRegistry: agentRegistry,
 		logger:        logger,
 		gateway:       gateway,
+		metrics:       metrics,
 	}
 }
 
 func (h *AgentHandler) GetAllAgents(c *gin.Context) {
-	agents := h.agentRegistry.GetAll()
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
+	agents := h.agentRegistry.GetAll(c.Request.Context())
 	responses := make([]AgentResponse, 0, len(agents))
 
 	for _, a := range agents {
@@ -98,8 +104,12 @@ func (h *AgentHandler) GetAllAgents(c *gin.Context) {
 }
 
 func (h *AgentHandler) GetAgent(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
-	a, ok := h.agentRegistry.Get(id)
+	a, ok := h.agentRegistry.Get(c.Request.Context(), id)
 	if !ok {
 		h.logger.Warn("agent not found", zap.String("id", id))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
@@ -125,6 +135,10 @@ func (h *AgentHandler) GetAgent(c *gin.Context) {
 }
 
 func (h *AgentHandler) CreateAgent(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
 	var req CreateAgentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Warn("invalid request", zap.Error(err))
@@ -165,9 +179,9 @@ func (h *AgentHandler) CreateAgent(c *gin.Context) {
 		Capabilities:  []agent.AgentCapability{},
 	}
 
-	a := agent.NewBaseAgent(cfg, h.logger)
+	a := agent.NewBaseAgent(cfg, h.logger).WithMetrics(h.metrics)
 
-	if err := h.agentRegistry.Register(a); err != nil {
+	if err := h.agentRegistry.Register(c.Request.Context(), a); err != nil {
 		h.logger.Error("failed to register agent", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{
 			Code:    http.StatusInternalServerError,
@@ -193,8 +207,12 @@ func (h *AgentHandler) CreateAgent(c *gin.Context) {
 }
 
 func (h *AgentHandler) ExecuteAgent(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
-	a, ok := h.agentRegistry.Get(id)
+	a, ok := h.agentRegistry.Get(c.Request.Context(), id)
 	if !ok {
 		h.logger.Warn("agent not found", zap.String("id", id))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
@@ -227,7 +245,7 @@ func (h *AgentHandler) ExecuteAgent(c *gin.Context) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	result, err := a.Execute(ctx, req.Query, options...)
 
 	if err != nil {
@@ -263,9 +281,13 @@ func (h *AgentHandler) ExecuteAgent(c *gin.Context) {
 }
 
 func (h *AgentHandler) DeleteAgent(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
 
-	if err := h.agentRegistry.Remove(id); err != nil {
+	if err := h.agentRegistry.Remove(c.Request.Context(), id); err != nil {
 		h.logger.Warn("agent not found or removal failed", zap.String("id", id), zap.Error(err))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
 			Code:    http.StatusNotFound,

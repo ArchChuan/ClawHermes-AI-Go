@@ -161,6 +161,36 @@ func TestServicesStruct(t *testing.T) {
 	}
 }
 
+func TestLoadAuthFields(t *testing.T) {
+	os.Setenv("GITHUB_CLIENT_ID", "gh-id")
+	os.Setenv("GITHUB_CLIENT_SECRET", "gh-secret")
+	os.Setenv("JWT_PRIVATE_KEY_PEM", "test-pem")
+	os.Setenv("GLOBAL_ADMIN_GITHUB_LOGIN", "byteBuilderX")
+	defer func() {
+		os.Unsetenv("GITHUB_CLIENT_ID")
+		os.Unsetenv("GITHUB_CLIENT_SECRET")
+		os.Unsetenv("JWT_PRIVATE_KEY_PEM")
+		os.Unsetenv("GLOBAL_ADMIN_GITHUB_LOGIN")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	if cfg.GitHubClientID != "gh-id" {
+		t.Errorf("GitHubClientID: got %s", cfg.GitHubClientID)
+	}
+	if cfg.GitHubClientSecret != "gh-secret" {
+		t.Errorf("GitHubClientSecret: got %s", cfg.GitHubClientSecret)
+	}
+	if cfg.JWTPrivateKeyPEM != "test-pem" {
+		t.Errorf("JWTPrivateKeyPEM: got %s", cfg.JWTPrivateKeyPEM)
+	}
+	if cfg.GlobalAdminGitHubLogin != "byteBuilderX" {
+		t.Errorf("GlobalAdminGitHubLogin: got %s", cfg.GlobalAdminGitHubLogin)
+	}
+}
+
 func TestInitializeServices(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := &Config{

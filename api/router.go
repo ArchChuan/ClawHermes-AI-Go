@@ -2,12 +2,17 @@ package api
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/handler"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/middleware"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/auth"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/config"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/document"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
@@ -17,8 +22,11 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/memory"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/orchestrator"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/textchunk"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
 	vectorstore "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -28,11 +36,79 @@ func SetupRouter(
 	logger *zap.Logger,
 	registry *orchestrator.Registry,
 	gateway *llmgateway.Gateway,
+	db *pgxpool.Pool,
+	rdb *goredis.Client,
 ) *gin.Engine {
 	router := gin.Default()
 
+	// Observability: single shared PrometheusMetrics instance
+	metrics := observability.NewPrometheusMetrics(logger)
+
+	// Inject metrics into LLM gateway
+	gateway.WithMetrics(metrics)
+
 	// Middleware
 	router.Use(middleware.ErrorHandler(logger))
+	router.Use(middleware.MetricsMiddleware(metrics))
+
+	// Auth setup — only if GitHub OAuth is configured
+	if cfg.GitHubClientID != "" {
+		rsaKey, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM)
+		if err != nil {
+			logger.Warn("JWT private key parse failed, auth routes disabled", zap.Error(err))
+		} else {
+			jwtSvc := auth.NewJWTService(rsaKey)
+			ghClient := auth.NewGitHubClient(cfg.GitHubClientID, cfg.GitHubClientSecret, "", "")
+			tokenStore := auth.NewTokenStore(db, rdb)
+			onboardSvc := auth.NewOnboardService(db)
+			authHandler := handler.NewAuthHandler(handler.AuthHandlerDeps{
+				GitHubClient:  ghClient,
+				JWTService:    jwtSvc,
+				TokenStore:    tokenStore,
+				OnboardSvc:    onboardSvc,
+				Logger:        logger,
+				CallbackURL:   "http://localhost:" + cfg.Port + "/auth/github/callback",
+				GlobalAdmin:   cfg.GlobalAdminGitHubLogin,
+				SecureCookies: cfg.SecureCookies,
+			})
+			authRoutes := router.Group("/auth")
+			{
+				authRoutes.GET("/github", authHandler.GitHubLogin)
+				authRoutes.GET("/github/callback", authHandler.GitHubCallback)
+				authRoutes.POST("/register", authHandler.Register)
+				authRoutes.POST("/refresh", authHandler.Refresh)
+				authRoutes.POST("/logout", authHandler.Logout)
+				authRoutes.GET("/me", authHandler.Me)
+			}
+
+			// Admin routes — require JWT + global_admin role
+			if db != nil {
+				jwtMW := auth.JWTMiddleware(jwtSvc)
+				adminHandler := handler.NewAdminHandler(db, logger)
+				tenantHandler := handler.NewTenantHandler(db, logger, cfg.FrontendURL)
+
+				adminGroup := router.Group("/admin", jwtMW, middleware.RequireGlobalAdmin())
+				{
+					adminGroup.GET("/tenants", adminHandler.ListTenants)
+					adminGroup.POST("/tenants", adminHandler.CreateTenant)
+					adminGroup.GET("/tenants/:id", adminHandler.GetTenant)
+					adminGroup.PATCH("/tenants/:id", adminHandler.UpdateTenant)
+					adminGroup.DELETE("/tenants/:id", adminHandler.DeleteTenant)
+				}
+
+				tenantGroup := router.Group("/tenant", jwtMW, middleware.RequireTenantRole("member"))
+				{
+					tenantGroup.GET("/members", tenantHandler.ListMembers)
+					tenantGroup.POST("/members/invite", tenantHandler.InviteMember)
+					tenantGroup.PATCH("/members/:user_id/role", tenantHandler.UpdateMemberRole)
+					tenantGroup.DELETE("/members/:user_id", tenantHandler.RemoveMember)
+					tenantGroup.GET("/settings", tenantHandler.GetSettings)
+					tenantGroup.PATCH("/settings", tenantHandler.UpdateSettings)
+				}
+			}
+		}
+	}
+	router.GET("/metrics", gin.WrapH(metrics.GetHandler()))
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
@@ -70,16 +146,16 @@ func SetupRouter(
 	ragHandler := handler.NewRAGHandler(ingestSvc, ragService, logger)
 
 	// Initialize agent registry and handler
-	agentRegistry := agent.NewRegistry(logger)
-	agentHandler := handler.NewAgentHandler(agentRegistry, logger, gateway)
+	agentRegistry := agent.NewRegistry(db, logger)
+	agentHandler := handler.NewAgentHandler(agentRegistry, logger, gateway, metrics)
 
 	// Initialize memory system
 	memoryConfig := memory.DefaultMemoryConfig()
-	memoryManager := memory.NewMemoryManager(memoryConfig, logger, nil, nil, nil)
+	memoryManager := memory.NewMemoryManager(memoryConfig, logger, nil, nil, nil, db)
 	memoryHandler := handler.NewMemoryHandler(memoryManager, logger)
 
 	// Initialize MCP system
-	mcpManager := mcp.NewClientManager(logger, nil)
+	mcpManager := mcp.NewClientManager(logger, nil, db)
 	mcpRegistry := mcp.NewMCPSkillRegistry(mcpManager, logger)
 	mcpHandler := handler.NewMCPHandler(mcpRegistry, mcpManager, logger)
 
@@ -129,4 +205,19 @@ func SetupRouter(
 	mcpHandler.RegisterRoutes(router)
 
 	return router
+}
+
+func parseRSAPrivateKey(pemStr string) (*rsa.PrivateKey, error) {
+	if pemStr == "" {
+		return nil, fmt.Errorf("JWT_PRIVATE_KEY_PEM is empty")
+	}
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse RSA key: %w", err)
+	}
+	return key, nil
 }

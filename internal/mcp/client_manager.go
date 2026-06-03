@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
@@ -19,10 +22,11 @@ type ClientManager struct {
 	poolConfig *ConnectionPoolConfig
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
+	pool       *pgxpool.Pool
 }
 
 // NewClientManager 创建新的客户端管理器
-func NewClientManager(logger *zap.Logger, poolConfig *ConnectionPoolConfig) *ClientManager {
+func NewClientManager(logger *zap.Logger, poolConfig *ConnectionPoolConfig, pool *pgxpool.Pool) *ClientManager {
 	if poolConfig == nil {
 		poolConfig = &ConnectionPoolConfig{
 			MaxConnections: 10,
@@ -39,7 +43,32 @@ func NewClientManager(logger *zap.Logger, poolConfig *ConnectionPoolConfig) *Cli
 		logger:     logger.Named("mcp.client_manager"),
 		poolConfig: poolConfig,
 		stopCh:     make(chan struct{}),
+		pool:       pool,
 	}
+}
+
+func (m *ClientManager) persistConnect(ctx context.Context, cfg *MCPServerConfig) {
+	if m.pool == nil {
+		return
+	}
+	_ = tenantdb.ExecTenant(ctx, m.pool, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO mcp_configs (id, name, transport, command, url, enabled)
+			VALUES ($1, $2, $3, $4, $5, true)
+			ON CONFLICT (id) DO UPDATE SET name=$2, transport=$3, command=$4, url=$5, enabled=true`,
+			cfg.ID, cfg.Name, cfg.Transport, cfg.Command, cfg.URL)
+		return err
+	})
+}
+
+func (m *ClientManager) persistDisconnect(ctx context.Context, serverID string) {
+	if m.pool == nil {
+		return
+	}
+	_ = tenantdb.ExecTenant(ctx, m.pool, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE mcp_configs SET enabled=false WHERE id=$1`, serverID)
+		return err
+	})
 }
 
 // Connect 连接到 MCP 服务器
@@ -77,6 +106,8 @@ func (m *ClientManager) Connect(ctx context.Context, config *MCPServerConfig) er
 	m.clients[config.ID] = client
 	m.configs[config.ID] = config
 
+	m.persistConnect(ctx, config)
+
 	m.logger.Info("connected to MCP server",
 		zap.String("server_id", config.ID),
 		zap.Int("tools", len(tools)),
@@ -102,6 +133,8 @@ func (m *ClientManager) Disconnect(ctx context.Context, serverID string) error {
 	delete(m.clients, serverID)
 	delete(m.configs, serverID)
 	m.cache.Delete(serverID)
+
+	m.persistDisconnect(ctx, serverID)
 
 	m.logger.Info("disconnected from MCP server", zap.String("server_id", serverID))
 	return nil

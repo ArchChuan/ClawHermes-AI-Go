@@ -2,8 +2,8 @@ package handler
 
 import (
 	"context"
-	"net/http"
 	"mime/multipart"
+	"net/http"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/knowledge"
 	"github.com/gin-gonic/gin"
@@ -53,6 +53,11 @@ type IngestDocumentRequest struct {
 }
 
 func (h *RAGHandler) UploadDocument(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	var req UploadDocumentRequest
 	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -81,14 +86,14 @@ func (h *RAGHandler) UploadDocument(c *gin.Context) {
 	documentID := uuid.New().String()
 
 	ingestReq := knowledge.IngestDocumentRequest{
+		TenantID:     tenantID,
 		Workspace:    req.Workspace,
 		DocumentData: fileData,
 		FileName:     req.File.Filename,
 		DocumentID:   documentID,
 	}
 
-	ctx := context.Background()
-	result, err := h.ingestSvc.IngestDocument(ctx, ingestReq)
+	result, err := h.ingestSvc.IngestDocument(c.Request.Context(), ingestReq)
 	if err != nil {
 		h.logger.Error("document ingestion failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -96,18 +101,23 @@ func (h *RAGHandler) UploadDocument(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":          true,
-		"document_id":      result.DocumentID,
-		"workspace":        result.Workspace,
-		"total_chunks":     result.TotalChunks,
-		"total_vectors":    result.TotalVectors,
-		"total_nodes":      result.TotalNodes,
-		"duration":         result.Duration.String(),
-		"errors":           result.Errors,
+		"success":       true,
+		"document_id":   result.DocumentID,
+		"workspace":     result.Workspace,
+		"total_chunks":  result.TotalChunks,
+		"total_vectors": result.TotalVectors,
+		"total_nodes":   result.TotalNodes,
+		"duration":      result.Duration.String(),
+		"errors":        result.Errors,
 	})
 }
 
 func (h *RAGHandler) Query(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	var req QueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -126,12 +136,12 @@ func (h *RAGHandler) Query(c *gin.Context) {
 	ragReq := knowledge.RAGQueryRequest{
 		Question:  req.Question,
 		Workspace: req.Workspace,
+		TenantID:  tenantID,
 		Mode:      req.Mode,
 		TopK:      req.TopK,
 	}
 
-	ctx := context.Background()
-	result, err := h.ragService.Query(ctx, ragReq)
+	result, err := h.ragService.Query(c.Request.Context(), ragReq)
 	if err != nil {
 		h.logger.Error("RAG query failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -158,10 +168,10 @@ func (h *RAGHandler) Query(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"answer":         result.Answer,
-		"sources":        sources,
-		"graph_context":  graphContext,
-		"mode":           result.Mode,
+		"answer":        result.Answer,
+		"sources":       sources,
+		"graph_context": graphContext,
+		"mode":          result.Mode,
 		"latency_ms":    result.Latency.Milliseconds(),
 	})
 }

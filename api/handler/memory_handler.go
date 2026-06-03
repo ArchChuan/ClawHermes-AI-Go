@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -124,6 +123,12 @@ func NewMemoryHandler(manager *memory.MemoryManager, logger *zap.Logger) *Memory
 
 // CreateSession creates a new conversation session
 func (h *MemoryHandler) CreateSession(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
+
 	var req CreateSessionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Warn("invalid create session request", zap.Error(err))
@@ -136,7 +141,7 @@ func (h *MemoryHandler) CreateSession(c *gin.Context) {
 
 	sessionID := uuid.New().String()
 	sessionCtx := &memory.SessionContext{
-		TenantID:  req.TenantID,
+		TenantID:  tenantID,
 		UserID:    req.UserID,
 		SessionID: sessionID,
 		AgentID:   req.AgentID,
@@ -144,8 +149,7 @@ func (h *MemoryHandler) CreateSession(c *gin.Context) {
 		Metadata:  req.Metadata,
 	}
 
-	// Initialize session in memory manager
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	if _, err := h.manager.GetStats(ctx, sessionCtx); err != nil {
 		h.logger.Error("failed to initialize session", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{
@@ -171,6 +175,12 @@ func (h *MemoryHandler) CreateSession(c *gin.Context) {
 
 // AddMemory adds a memory entry
 func (h *MemoryHandler) AddMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
+
 	var req AddMemoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Warn("invalid add memory request", zap.Error(err))
@@ -186,7 +196,7 @@ func (h *MemoryHandler) AddMemory(c *gin.Context) {
 		Role:       req.Role,
 		Content:    req.Content,
 		Timestamp:  time.Now(),
-		TenantID:   req.TenantID,
+		TenantID:   tenantID,
 		UserID:     req.UserID,
 		SessionID:  req.SessionID,
 		AgentID:    req.AgentID,
@@ -201,7 +211,7 @@ func (h *MemoryHandler) AddMemory(c *gin.Context) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	if err := h.manager.Add(ctx, entry); err != nil {
 		h.logger.Error("failed to add memory entry", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{
@@ -234,12 +244,25 @@ func (h *MemoryHandler) AddMemory(c *gin.Context) {
 
 // GetMemory retrieves a memory entry by ID
 func (h *MemoryHandler) GetMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	entry, err := h.manager.Get(ctx, id)
 	if err != nil {
 		h.logger.Warn("memory entry not found", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "memory entry not found",
+		})
+		return
+	}
+
+	if entry.TenantID != tenantID {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
 			Code:    http.StatusNotFound,
 			Message: "memory entry not found",
@@ -266,6 +289,12 @@ func (h *MemoryHandler) GetMemory(c *gin.Context) {
 
 // SearchMemory searches memory entries
 func (h *MemoryHandler) SearchMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
+
 	var req SearchMemoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Warn("invalid search memory request", zap.Error(err))
@@ -283,7 +312,7 @@ func (h *MemoryHandler) SearchMemory(c *gin.Context) {
 	}
 
 	sessionCtx := &memory.SessionContext{
-		TenantID:  req.TenantID,
+		TenantID:  tenantID,
 		UserID:    req.UserID,
 		SessionID: req.SessionID,
 	}
@@ -301,7 +330,7 @@ func (h *MemoryHandler) SearchMemory(c *gin.Context) {
 		searchReq.Limit = 10
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	results, err := h.manager.Search(ctx, searchReq)
 	if err != nil {
 		h.logger.Error("failed to search memory", zap.Error(err))
@@ -347,9 +376,23 @@ func (h *MemoryHandler) SearchMemory(c *gin.Context) {
 
 // DeleteMemory deletes a memory entry
 func (h *MemoryHandler) DeleteMemory(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	id := c.Param("id")
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
+	entry, err := h.manager.Get(ctx, id)
+	if err != nil || entry.TenantID != tenantID {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{
+			Code:    http.StatusNotFound,
+			Message: "memory entry not found",
+		})
+		return
+	}
+
 	if err := h.manager.Delete(ctx, id); err != nil {
 		h.logger.Warn("failed to delete memory entry", zap.String("id", id), zap.Error(err))
 		c.JSON(http.StatusNotFound, model.ErrorResponse{
@@ -367,9 +410,9 @@ func (h *MemoryHandler) DeleteMemory(c *gin.Context) {
 
 // GetStats retrieves memory statistics
 func (h *MemoryHandler) GetStats(c *gin.Context) {
+	tenantID, _ := tenantIDFromCtx(c)
 	var sessionCtx *memory.SessionContext
-
-	if tenantID := c.Query("tenant_id"); tenantID != "" {
+	if tenantID != "" {
 		sessionCtx = &memory.SessionContext{
 			TenantID:  tenantID,
 			UserID:    c.Query("user_id"),
@@ -377,7 +420,7 @@ func (h *MemoryHandler) GetStats(c *gin.Context) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	stats, err := h.manager.GetStats(ctx, sessionCtx)
 	if err != nil {
 		h.logger.Error("failed to get memory stats", zap.Error(err))
@@ -403,17 +446,13 @@ func (h *MemoryHandler) GetStats(c *gin.Context) {
 
 // ClearSession clears all memory entries for a session
 func (h *MemoryHandler) ClearSession(c *gin.Context) {
-	sessionID := c.Param("session_id")
-	tenantID := c.Query("tenant_id")
-	userID := c.Query("user_id")
-
-	if tenantID == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{
-			Code:    http.StatusBadRequest,
-			Message: "tenant_id is required",
-		})
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
 		return
 	}
+	sessionID := c.Param("session_id")
+	userID := c.Query("user_id")
 
 	sessionCtx := &memory.SessionContext{
 		TenantID:  tenantID,
@@ -421,7 +460,7 @@ func (h *MemoryHandler) ClearSession(c *gin.Context) {
 		SessionID: sessionID,
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	if err := h.manager.Clear(ctx, sessionCtx); err != nil {
 		h.logger.Error("failed to clear session", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{
@@ -439,7 +478,11 @@ func (h *MemoryHandler) ClearSession(c *gin.Context) {
 
 // GetEntities retrieves entities for a session
 func (h *MemoryHandler) GetEntities(c *gin.Context) {
-	tenantID := c.Query("tenant_id")
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
 	userID := c.Query("user_id")
 	sessionID := c.Query("session_id")
 
@@ -449,7 +492,7 @@ func (h *MemoryHandler) GetEntities(c *gin.Context) {
 		SessionID: sessionID,
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	entities, err := h.manager.GetEntities(ctx, sessionCtx)
 	if err != nil {
 		h.logger.Error("failed to get entities", zap.Error(err))
@@ -494,10 +537,15 @@ func (h *MemoryHandler) GetEntities(c *gin.Context) {
 
 // ExtractEntities extracts entities from text
 func (h *MemoryHandler) ExtractEntities(c *gin.Context) {
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
+		return
+	}
+
 	var req struct {
 		Text      string                 `json:"text" binding:"required"`
 		SessionID string                 `json:"session_id" binding:"required"`
-		TenantID  string                 `json:"tenant_id" binding:"required"`
 		UserID    string                 `json:"user_id" binding:"required"`
 		Metadata  map[string]interface{} `json:"metadata"`
 	}
@@ -512,13 +560,13 @@ func (h *MemoryHandler) ExtractEntities(c *gin.Context) {
 	}
 
 	sessionCtx := &memory.SessionContext{
-		TenantID:  req.TenantID,
+		TenantID:  tenantID,
 		UserID:    req.UserID,
 		SessionID: req.SessionID,
 		Metadata:  req.Metadata,
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	entities, err := h.manager.ExtractEntities(ctx, req.Text, sessionCtx)
 	if err != nil {
 		h.logger.Error("failed to extract entities", zap.Error(err))
@@ -551,17 +599,13 @@ func (h *MemoryHandler) ExtractEntities(c *gin.Context) {
 
 // GetSummary retrieves conversation summary
 func (h *MemoryHandler) GetSummary(c *gin.Context) {
-	sessionID := c.Param("session_id")
-	tenantID := c.Query("tenant_id")
-	userID := c.Query("user_id")
-
-	if tenantID == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{
-			Code:    http.StatusBadRequest,
-			Message: "tenant_id is required",
-		})
+	tenantID, ok := tenantIDFromCtx(c)
+	if !ok {
+		respondMissingTenant(c)
 		return
 	}
+	sessionID := c.Param("session_id")
+	userID := c.Query("user_id")
 
 	sessionCtx := &memory.SessionContext{
 		TenantID:  tenantID,
@@ -569,7 +613,7 @@ func (h *MemoryHandler) GetSummary(c *gin.Context) {
 		SessionID: sessionID,
 	}
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	summary, err := h.manager.GetSummary(ctx, sessionCtx)
 	if err != nil {
 		h.logger.Error("failed to get summary", zap.Error(err))

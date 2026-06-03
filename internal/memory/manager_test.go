@@ -11,7 +11,7 @@ func TestNewMemoryManagerDefault(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := DefaultMemoryConfig()
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected non-nil manager")
@@ -29,7 +29,7 @@ func TestNewMemoryManagerDefault(t *testing.T) {
 func TestNewMemoryManagerWithNilConfig(t *testing.T) {
 	logger := zap.NewNop()
 
-	manager := NewMemoryManager(nil, logger, nil, nil, nil)
+	manager := NewMemoryManager(nil, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected non-nil manager")
@@ -52,7 +52,7 @@ func TestMemoryManagerWithWindowSize(t *testing.T) {
 		EnablePersistence:      false,
 	}
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected non-nil manager")
@@ -75,7 +75,7 @@ func TestMemoryManagerWithSummary(t *testing.T) {
 		EnablePersistence:      false,
 	}
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected non-nil manager")
@@ -98,7 +98,7 @@ func TestMemoryManagerWithBuffer(t *testing.T) {
 		EnablePersistence:      false,
 	}
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	if manager == nil {
 		t.Error("expected non-nil manager")
@@ -113,7 +113,7 @@ func TestMemoryManagerAdd(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := DefaultMemoryConfig()
 
-	manager := NewMemoryManager(cfg, logger, nil, nil, nil)
+	manager := NewMemoryManager(cfg, logger, nil, nil, nil, nil)
 
 	ctx := context.Background()
 	entry := &MemoryEntry{

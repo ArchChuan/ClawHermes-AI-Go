@@ -12,13 +12,24 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/knowledge"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/textchunk"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-func TestRAGHandlerUploadDocument(t *testing.T) {
-	logger := zap.NewNop()
+func setupRAGRouter(handler *RAGHandler) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		tc := &tenantdb.TenantContext{TenantID: "tenant-1", UserID: "user-1", Role: tenantdb.RoleTenantAdmin}
+		c.Request = c.Request.WithContext(tenantdb.WithTenant(c.Request.Context(), tc))
+		c.Next()
+	})
+	return router
+}
+
+func newTestRAGHandler(logger *zap.Logger) *RAGHandler {
 	parser := document.NewParser(logger)
 	chunker := textchunk.NewChunker(logger)
 	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
@@ -26,10 +37,13 @@ func TestRAGHandlerUploadDocument(t *testing.T) {
 	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
 	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
 	ragService := knowledge.NewRAGService(embedSvc, vectorStore, graphRAG, logger)
-	handler := NewRAGHandler(ingestSvc, ragService, logger)
+	return NewRAGHandler(ingestSvc, ragService, logger)
+}
 
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
+func TestRAGHandlerUploadDocument(t *testing.T) {
+	logger := zap.NewNop()
+	handler := newTestRAGHandler(logger)
+	router := setupRAGRouter(handler)
 	router.POST("/upload", handler.UploadDocument)
 
 	req := map[string]interface{}{
@@ -51,17 +65,8 @@ func TestRAGHandlerUploadDocument(t *testing.T) {
 
 func TestRAGHandlerQuery(t *testing.T) {
 	logger := zap.NewNop()
-	parser := document.NewParser(logger)
-	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
-	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
-	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
-	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
-	ragService := knowledge.NewRAGService(embedSvc, vectorStore, graphRAG, logger)
-	handler := NewRAGHandler(ingestSvc, ragService, logger)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
+	handler := newTestRAGHandler(logger)
+	router := setupRAGRouter(handler)
 	router.POST("/query", handler.Query)
 
 	req := map[string]interface{}{
@@ -84,17 +89,8 @@ func TestRAGHandlerQuery(t *testing.T) {
 
 func TestRAGHandlerUploadDocumentInvalidRequest(t *testing.T) {
 	logger := zap.NewNop()
-	parser := document.NewParser(logger)
-	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
-	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
-	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
-	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
-	ragService := knowledge.NewRAGService(embedSvc, vectorStore, graphRAG, logger)
-	handler := NewRAGHandler(ingestSvc, ragService, logger)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
+	handler := newTestRAGHandler(logger)
+	router := setupRAGRouter(handler)
 	router.POST("/upload", handler.UploadDocument)
 
 	w := httptest.NewRecorder()
@@ -109,17 +105,8 @@ func TestRAGHandlerUploadDocumentInvalidRequest(t *testing.T) {
 
 func TestRAGHandlerQueryInvalidRequest(t *testing.T) {
 	logger := zap.NewNop()
-	parser := document.NewParser(logger)
-	chunker := textchunk.NewChunker(logger)
-	embedSvc := embedding.NewEmbeddingService(llmgateway.NewOpenAIClient("", "", logger), logger)
-	vectorStore := vector.NewVectorStore("localhost", "19530", logger)
-	graphRAG := knowledge.NewGraphRAG("bolt://localhost:7687", "neo4j", "password", logger)
-	ingestSvc := knowledge.NewKnowledgeIngest(parser, chunker, embedSvc, vectorStore, graphRAG, logger)
-	ragService := knowledge.NewRAGService(embedSvc, vectorStore, graphRAG, logger)
-	handler := NewRAGHandler(ingestSvc, ragService, logger)
-
-	gin.SetMode(gin.TestMode)
-	router := gin.New()
+	handler := newTestRAGHandler(logger)
+	router := setupRAGRouter(handler)
 	router.POST("/query", handler.Query)
 
 	w := httptest.NewRecorder()

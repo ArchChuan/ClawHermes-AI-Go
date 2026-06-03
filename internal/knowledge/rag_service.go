@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j/dbtype"
 	"go.uber.org/zap"
@@ -36,6 +37,7 @@ func NewRAGService(
 type RAGQueryRequest struct {
 	Question  string
 	Workspace string
+	TenantID  string
 	Mode      string // "vector", "keyword", "graph", "hybrid"
 	TopK      int
 }
@@ -79,7 +81,12 @@ func (rs *RAGService) Query(ctx context.Context, req RAGQueryRequest) (*RAGQuery
 		req.TopK = 5
 	}
 
-	collectionName := fmt.Sprintf("%s_kb", req.Workspace)
+	collectionName := req.Workspace + "_kb"
+	if req.TenantID != "" {
+		if name, err := tenantdb.TenantCollection(ctx, "kb"); err == nil {
+			collectionName = name
+		}
+	}
 
 	switch req.Mode {
 	case "vector":

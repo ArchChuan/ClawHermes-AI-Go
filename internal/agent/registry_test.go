@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
+	"github.com/pashagolub/pgxmock/v2"
 	"go.uber.org/zap"
 )
 
@@ -11,137 +13,110 @@ type mockAgent struct {
 	config *AgentConfig
 }
 
-func (m *mockAgent) GetConfig() *AgentConfig {
-	return m.config
-}
-
+func (m *mockAgent) GetConfig() *AgentConfig { return m.config }
 func (m *mockAgent) Execute(ctx context.Context, input string, options ...ExecutionOption) (*AgentResult, error) {
-	return &AgentResult{
-		AgentID: m.config.ID,
-		Input:   input,
-		Output:  "mock result",
-	}, nil
+	return &AgentResult{AgentID: m.config.ID, Input: input, Output: "mock"}, nil
+}
+func (m *mockAgent) Reset()              {}
+func (m *mockAgent) GetMemory() []Message { return nil }
+
+func tenantCtx(tenantID string) context.Context {
+	tc := &tenantdb.TenantContext{TenantID: tenantID, UserID: "u1", Role: tenantdb.RoleTenantAdmin}
+	return tenantdb.WithTenant(context.Background(), tc)
 }
 
-func (m *mockAgent) Reset() {
-}
-
-func (m *mockAgent) GetMemory() []Message {
-	return []Message{}
-}
-
-func TestNewRegistry(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
-
-	if registry == nil {
-		t.Error("expected registry to be non-nil")
-	}
-
-	if registry.agents == nil {
-		t.Error("expected agents map to be non-nil")
-	}
-
-	if len(registry.agents) != 0 {
-		t.Errorf("expected empty agents map, got %d agents", len(registry.agents))
-	}
-}
-
-func TestRegisterAgent(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
-
-	agent := &mockAgent{
-		config: &AgentConfig{
-			ID:   "test-agent",
-			Name: "Test Agent",
-			Type: ReActAgent,
-		},
-	}
-
-	err := registry.Register(agent)
+func TestRegistry_Register(t *testing.T) {
+	pool, err := pgxmock.NewPool()
 	if err != nil {
-		t.Errorf("Register() failed: %v", err)
+		t.Fatal(err)
 	}
+	defer pool.Close()
 
-	if len(registry.agents) != 1 {
-		t.Errorf("expected 1 agent, got %d", len(registry.agents))
+	pool.ExpectBegin()
+	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
+	pool.ExpectExec("INSERT INTO agents").
+		WithArgs("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	pool.ExpectCommit()
+
+	reg := &Registry{pool: pool, logger: zap.NewNop()}
+	a := &mockAgent{config: &AgentConfig{ID: "a1", Name: "Alpha", Type: ReActAgent, LLMModel: "gpt-4o", MaxIterations: 5}}
+	if err := reg.Register(tenantCtx("t1"), a); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := pool.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
 	}
 }
 
-func TestRegisterDuplicateAgent(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
-
-	agent := &mockAgent{
-		config: &AgentConfig{
-			ID:   "test-agent",
-			Name: "Test Agent",
-			Type: ReActAgent,
-		},
-	}
-
-	err := registry.Register(agent)
+func TestRegistry_Get(t *testing.T) {
+	pool, err := pgxmock.NewPool()
 	if err != nil {
-		t.Errorf("first Register() failed: %v", err)
+		t.Fatal(err)
 	}
+	defer pool.Close()
 
-	err = registry.Register(agent)
-	if err == nil {
-		t.Error("expected error when registering duplicate agent")
-	}
-}
+	pool.ExpectBegin()
+	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
+	pool.ExpectQuery("SELECT id, name").
+		WithArgs(pgxmock.AnyArg()).
+		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations"}).
+			AddRow("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5))
+	pool.ExpectCommit()
 
-func TestGetAgent(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
-
-	agent := &mockAgent{
-		config: &AgentConfig{
-			ID:   "test-agent",
-			Name: "Test Agent",
-			Type: ReActAgent,
-		},
-	}
-
-	registry.Register(agent)
-
-	retrieved, ok := registry.Get("test-agent")
+	reg := &Registry{pool: pool, logger: zap.NewNop()}
+	a, ok := reg.Get(tenantCtx("t1"), "a1")
 	if !ok {
-		t.Error("expected to find agent")
+		t.Fatal("expected to find agent")
 	}
-
-	if retrieved.GetConfig().ID != "test-agent" {
-		t.Errorf("expected agent ID test-agent, got %s", retrieved.GetConfig().ID)
+	if a.GetConfig().Name != "Alpha" {
+		t.Errorf("unexpected name: %s", a.GetConfig().Name)
+	}
+	if err := pool.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
 	}
 }
 
-func TestGetNonexistentAgent(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
+func TestRegistry_GetNotFound(t *testing.T) {
+	pool, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
 
-	_, ok := registry.Get("nonexistent")
+	pool.ExpectBegin()
+	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
+	pool.ExpectQuery("SELECT id, name").
+		WithArgs("missing").
+		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations"}))
+	pool.ExpectRollback()
+
+	reg := &Registry{pool: pool, logger: zap.NewNop()}
+	_, ok := reg.Get(tenantCtx("t1"), "missing")
 	if ok {
-		t.Error("expected not to find nonexistent agent")
+		t.Fatal("expected not found")
 	}
 }
 
-func TestListAgents(t *testing.T) {
-	logger := zap.NewNop()
-	registry := NewRegistry(logger)
-
-	agent1 := &mockAgent{
-		config: &AgentConfig{ID: "agent-1", Name: "Agent 1", Type: ReActAgent},
+func TestRegistry_Remove(t *testing.T) {
+	pool, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
 	}
-	agent2 := &mockAgent{
-		config: &AgentConfig{ID: "agent-2", Name: "Agent 2", Type: CoTAgent},
+	defer pool.Close()
+
+	pool.ExpectBegin()
+	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
+	pool.ExpectExec("DELETE FROM agents").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 1))
+	pool.ExpectCommit()
+
+	reg := &Registry{pool: pool, logger: zap.NewNop()}
+	if err := reg.Remove(tenantCtx("t1"), "a1"); err != nil {
+		t.Fatalf("Remove: %v", err)
 	}
-
-	registry.Register(agent1)
-	registry.Register(agent2)
-
-	agents := registry.GetAll()
-	if len(agents) != 2 {
-		t.Errorf("expected 2 agents, got %d", len(agents))
+	if err := pool.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
 	}
 }

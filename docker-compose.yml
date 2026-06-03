@@ -220,6 +220,31 @@ services:
       - etcd
       - minio
 
+  # PostgreSQL - 关系型数据库（多租户元数据）
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clawhermes
+      POSTGRES_PASSWORD: clawhermes
+      POSTGRES_DB: clawhermes
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - clawhermes
+
+  # Redis - 缓存和会话存储
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - clawhermes
+    volumes:
+      - redis_data:/data
+
 networks:
   clawhermes:
     driver: bridge
@@ -234,3 +259,5 @@ volumes:
   etcd_data:
   minio_data:
   milvus_data:
+  postgres_data:
+  redis_data:

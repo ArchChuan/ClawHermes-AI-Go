@@ -1,25 +1,67 @@
-# ClawHermes-AI-Go: Karpathy 12 Rules
-
-**Core Principle**: Correctness > Speed. All work must follow these 12 rules unconditionally.
-
-| Rule | Principle |
-|------|-----------|
-| 1️⃣ Think Before Code | Explicitly state all assumptions; ask if uncertain. Never guess silently. |
-| 2️⃣ Simplicity First | Build minimal viable solution only. No over-design, no speculative abstractions. |
-| 3️⃣ Surgical Changes | Modify only related code. No unrelated refactoring, renaming, or style changes. |
-| 4️⃣ Verify Before Done | Define success criteria. Complete verification & testing before completion claim. |
-| 5️⃣ Hard-Code Control Logic | AI handles language tasks only. All routing/retry/state machine logic must be hard-coded. |
-| 6️⃣ Token Budget | Single task: 4k tokens; session: 30k tokens. Auto-continue when approaching limit. |
-| 7️⃣ Resolve Conflicts | Choose one valid approach, mark other for removal. No hybrid/compromise code. |
-| 8️⃣ Read Fully First | Read all related files/interfaces/call chains before writing code. No exceptions. |
-| 9️⃣ Validate Business Intent | Tests must verify intent, not just return values. Fail fast on logic deviation. |
-| 🔟 Checkpoint Long Ops | Record completion, verification, and remaining tasks for each complex step. |
-| 1️⃣1️⃣ Project Convention | Strictly follow project architecture/style. No personal preference. |
-| 1️⃣2️⃣ Expose Errors | Declare any skip, uncertainty, or partial failure explicitly. No silent failure. |
-
-**Execution Order**: Make it work → Make it right → Make it fast → Make it scalable
-
+# ClawHermes-AI-Go Project Rules
+## Andrej Karpathy Core Twelve Mandatory Principles
+Global Default Principle: Caution over speed. Prefer correctness, clarity, and safety over velocity. All tasks must follow these 12 rules unconditionally.
 ---
+Rule 1: Think Before Coding — No Silent Assumptions
+Incident: AI silently assumed ambiguous requirements and implemented risky over-engineered logic without confirmation.
+Rule: Explicitly state all assumptions before coding. If ambiguous, list multiple interpretations and ask. Never guess silently. Stop immediately when confused.
+Rule 2: Simplicity First — No Speculative Over-Engineering
+Incident: AI added unnecessary design patterns and future-proof abstractions for simple one-off logic.
+Rule: Build the minimal correct solution only. No speculative flexibility, no unused abstractions, no premature optimization. If simpler code exists, rewrite it.
+Rule 3: Surgical Changes — Minimize Change Surface
+Incident: AI fixed one bug but silently refactored neighboring code, causing new regressions.
+Rule: Only modify code directly related to the task. No unrelated refactoring, cleaning, renaming, or styling changes. Match existing project style strictly.
+Rule 4: Goal-Driven Execution — Verify Before Success Claim
+Incident: AI claimed fixes were complete without verification, leading to production failures.
+Rule: Define clear success criteria before implementation. Complete verification and testing before marking done. Never submit untested code.
+Rule 5: Do Not Assign Non-Linguistic Work to AI Models
+Incident: Claude judged 503 retrys logic via natural language reasoning, breaking strict technical retry policies.
+Rule: AI handles only language tasks: classification, summarization, reasoning. All routing, retry, state machine, and technical control logic must be hard-coded.
+Rule 6: Strict Token Budget — Automatic Continuation
+Incident: Long debugging sessions looped in outdated context, repeating invalid solutions due to token saturation.
+Rule: Single task max 4k tokens, single session max 30k tokens.
+When approaching token limits, the AI will AUTOMATICALLY:
+1. Summarize completed work
+2. Create a checkpoint
+3. Reset context to minimal necessary
+4. CONTINUE executing the task WITHOUT human intervention
+The AI will only pause and ask for confirmation if the session exceeds 28k tokens (95% of max).
+No silent overrun, no unnecessary stops.
+Rule 7: Resolve Conflicts Explicitly — No Compromise
+Incident: AI merged two conflicting error-handling logics, creating hybrid broken code that swallowed errors twice.
+Rule: Facing conflicting implementations, choose one valid approach, mark the other for removal. Never write ambiguous, hybrid, compromise code.
+Rule 8: Read Fully Before Writing
+Incident: AI duplicated existing stable functions and overwrote production interfaces due to incomplete code reading.
+Rule: Read all related files, interfaces, and call chains before writing new code. No code change without full context awareness. Nothing is “unrelated” by appearance.
+Rule 9: Validate Business Intent, Not Surface Output
+Incident: Tests passed superficially but core business logic failed in production.
+Rule: Tests must verify business correctness, not just return values. Passing tests that do not validate intent are invalid. Fail fast on logic deviation.
+Rule 10: Long Operations Must Have Checkpoints
+Incident: Multi-step refactoring deviated at step 4, and AI continued building on wrong foundations, causing massive rollback cost.
+Rule: Every complex step requires a checkpoint: record done work, verified result, and remaining tasks. Stop immediately if any step fails validation.
+Rule 11: Project Convention Over Personal Taste
+Incident: AI introduced new technical patterns inconsistent with project standards, breaking CI and lifecycle logic.
+Rule: Maintain internal project consistency absolutely. Follow existing architecture, patterns, and style. No personal preference or unauthorized pattern replacement.
+Rule 12: Expose Errors — Never Cover Up
+Incident: AI reported full migration success while silently skipping data records, causing delayed business reconciliation failure.
+Rule: Any skip, uncertainty, or partial failure must be explicitly declared. Default to expose risks instead of hiding them. No silent failure tolerance.
+---
+### Karpathy Core Four Meta Principle (Overall Execution Order)
+1. Make it work → 2. Make it right → 3. Make it fast → 4. Make it scalable## Layered Context Index
+This file is Layer 1 (High-frequency behavioral rules).
+Detailed project facts and task-specific rules are in the following standardized files:
+
+### Layer 2 - Project Facts
+(Directory structure, dependency versions, error handling, concurrency rules)
+- Documentation: [`docs/agent/project.md`](docs/agent/project.md)
+
+### Layer 3 - Task-Specific Rules
+(Mandatory reading before modifying corresponding modules)
+- Milvus vector database: [`docs/agent/milvus.md`](docs/agent/milvus.md)
+- NATS/Hermes event bus: [`docs/agent/nats.md`](docs/agent/nats.md)
+- API endpoints & Gateway: [`docs/agent/api.md`](docs/agent/api.md)
+- Agent core system: [`docs/agent/agent.md`](docs/agent/agent.md)
+- Observability & monitoring: [`docs/agent/observability.md`](docs/agent/observability.md)
 
 ## Go Coding Standards
 - Go idioms + goroutine-safe + Zap logging (no fmt.Print)
@@ -61,5 +103,3 @@
 - External dependencies: circuit breaker pattern
 - Custom error types (never plain strings)
 
-## References
-See [`docs/agent/project.md`](docs/agent/project.md) for project facts and corresponding module docs (milvus/nats/api/agent/observability) for task-specific rules.
