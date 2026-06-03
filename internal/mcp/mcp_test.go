@@ -87,7 +87,7 @@ func TestCacheExpiration(t *testing.T) {
 // TestClientManagerConnect 测试客户端管理器连接
 func TestClientManagerConnect(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 
 	_ = &MCPServerConfig{
 		ID:        "test-server",
@@ -109,7 +109,7 @@ func TestClientManagerConnect(t *testing.T) {
 // TestMCPSkillWrapper 测试 MCP Skill 包装器
 func TestMCPSkillWrapper(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 
 	tool := &MCPTool{
 		Name:        "test_tool",
@@ -143,7 +143,7 @@ func TestMCPSkillWrapper(t *testing.T) {
 // TestMCPSkillRegistry 测试 MCP Skill 注册表
 func TestMCPSkillRegistry(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 	registry := NewMCPSkillRegistry(manager, logger)
 
 	if len(registry.GetAllSkills()) != 0 {
@@ -160,7 +160,7 @@ func TestMCPSkillRegistry(t *testing.T) {
 // TestMCPSkillRegistryExecute 测试执行不存在的 Skill
 func TestMCPSkillRegistryExecute(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 	registry := NewMCPSkillRegistry(manager, logger)
 
 	_, err := registry.ExecuteSkill("nonexistent", nil)
@@ -222,7 +222,7 @@ func TestBaseClientGetServerInfo(t *testing.T) {
 // TestClientManagerGetAllServerInfo 测试获取所有服务器信息
 func TestClientManagerGetAllServerInfo(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 
 	infos := manager.GetAllServerInfo()
 	if len(infos) != 0 {
@@ -270,7 +270,7 @@ func TestCacheClear(t *testing.T) {
 // TestMCPSkillAdapterGetAllSkills 测试获取所有 Skills
 func TestMCPSkillAdapterGetAllSkills(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
-	manager := NewClientManager(logger, nil)
+	manager := NewClientManager(logger, nil, nil)
 	adapter := NewMCPSkillAdapter("test", manager, logger)
 
 	skills := adapter.GetAllSkills()
@@ -369,7 +369,7 @@ func TestMCPSkillWrapperUsesStoredContext(t *testing.T) {
 		Type:     "mcp",
 		ServerID: "test-server",
 		Tool:     &MCPTool{Name: "tool"},
-		Manager:  NewClientManager(logger, nil),
+		Manager:  NewClientManager(logger, nil, nil),
 		logger:   logger,
 	}
 

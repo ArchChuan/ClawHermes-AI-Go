@@ -210,6 +210,8 @@ func (h *MCPHandler) RegisterRoutes(router *gin.Engine) {
 	v1.GET("/servers/:id", h.GetServer)
 	v1.GET("/servers/:id/tools", h.ListTools)
 	v1.GET("/servers/:id/resources", h.ListResources)
+	v1.POST("/servers", h.ConnectServer)
+	v1.DELETE("/servers/:id", h.DisconnectServer)
 
 	// 工具相关
 	v1.POST("/tools/:toolId/execute", h.ExecuteTool)
@@ -221,4 +223,45 @@ func (h *MCPHandler) RegisterRoutes(router *gin.Engine) {
 
 	// 状态相关
 	v1.GET("/status", h.GetServerStatus)
+}
+
+// ConnectServer connects a new MCP server
+// POST /api/v1/mcp/servers
+func (h *MCPHandler) ConnectServer(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
+
+	var cfg mcp.MCPServerConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.manager.Connect(c.Request.Context(), &cfg); err != nil {
+		h.logger.Error("failed to connect MCP server", zap.String("server_id", cfg.ID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "connected", "server_id": cfg.ID})
+}
+
+// DisconnectServer disconnects an MCP server
+// DELETE /api/v1/mcp/servers/:id
+func (h *MCPHandler) DisconnectServer(c *gin.Context) {
+	if _, ok := tenantIDFromCtx(c); !ok {
+		respondMissingTenant(c)
+		return
+	}
+
+	serverID := c.Param("id")
+	if err := h.manager.Disconnect(c.Request.Context(), serverID); err != nil {
+		h.logger.Error("failed to disconnect MCP server", zap.String("server_id", serverID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "disconnected"})
 }

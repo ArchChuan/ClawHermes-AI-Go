@@ -123,7 +123,7 @@ func main() {
 	}
 
 	// 4. Skill Registry component
-	registry := orchestrator.NewRegistry()
+	registry := orchestrator.NewRegistry(pgPool.DB())
 	skillRegistryComponent := harnesspkg.NewSimpleComponent("skill-registry", logger,
 		harnesspkg.WithStartFunc(func(ctx context.Context) error {
 			logger.Info("Skill registry initialized")

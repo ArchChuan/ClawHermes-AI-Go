@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 
 func TestSkillHandlerCreateSkill(t *testing.T) {
 	logger := zap.NewNop()
-	registry := orchestrator.NewRegistry()
+	registry := orchestrator.NewRegistry(nil)
 	gateway := llmgateway.NewGateway()
 	handler := NewSkillHandler(registry, logger, gateway)
 
@@ -52,13 +53,14 @@ func TestSkillHandlerCreateSkill(t *testing.T) {
 }
 
 func TestSkillHandlerGetSkill(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
-	registry := orchestrator.NewRegistry()
+	registry := orchestrator.NewRegistry(nil)
 	gateway := llmgateway.NewGateway()
 	handler := NewSkillHandler(registry, logger, gateway)
 
 	s := skill.NewCodeSkill("test-id", "test", "desc", "code", "python")
-	registry.Register("test-id", s)
+	registry.Register(ctx, "test-id", s)
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -75,15 +77,16 @@ func TestSkillHandlerGetSkill(t *testing.T) {
 }
 
 func TestSkillHandlerGetAllSkills(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
-	registry := orchestrator.NewRegistry()
+	registry := orchestrator.NewRegistry(nil)
 	gateway := llmgateway.NewGateway()
 	handler := NewSkillHandler(registry, logger, gateway)
 
 	s1 := skill.NewCodeSkill("id1", "skill1", "desc1", "code", "python")
 	s2 := skill.NewCodeSkill("id2", "skill2", "desc2", "code", "go")
-	registry.Register("id1", s1)
-	registry.Register("id2", s2)
+	registry.Register(ctx, "id1", s1)
+	registry.Register(ctx, "id2", s2)
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -100,13 +103,14 @@ func TestSkillHandlerGetAllSkills(t *testing.T) {
 }
 
 func TestSkillHandlerDeleteSkill(t *testing.T) {
+	ctx := context.Background()
 	logger := zap.NewNop()
-	registry := orchestrator.NewRegistry()
+	registry := orchestrator.NewRegistry(nil)
 	gateway := llmgateway.NewGateway()
 	handler := NewSkillHandler(registry, logger, gateway)
 
 	s := skill.NewCodeSkill("test-id", "test", "desc", "code", "python")
-	registry.Register("test-id", s)
+	registry.Register(ctx, "test-id", s)
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

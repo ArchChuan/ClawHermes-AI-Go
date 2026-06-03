@@ -126,11 +126,11 @@ func SetupRouter(
 
 	// Initialize memory system
 	memoryConfig := memory.DefaultMemoryConfig()
-	memoryManager := memory.NewMemoryManager(memoryConfig, logger, nil, nil, nil)
+	memoryManager := memory.NewMemoryManager(memoryConfig, logger, nil, nil, nil, db)
 	memoryHandler := handler.NewMemoryHandler(memoryManager, logger)
 
 	// Initialize MCP system
-	mcpManager := mcp.NewClientManager(logger, nil)
+	mcpManager := mcp.NewClientManager(logger, nil, db)
 	mcpRegistry := mcp.NewMCPSkillRegistry(mcpManager, logger)
 	mcpHandler := handler.NewMCPHandler(mcpRegistry, mcpManager, logger)
 

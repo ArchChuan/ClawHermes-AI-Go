@@ -12,7 +12,7 @@ import (
 
 func TestMCPHandlerListServers(t *testing.T) {
 	logger := zap.NewNop()
-	manager := mcp.NewClientManager(logger, nil)
+	manager := mcp.NewClientManager(logger, nil, nil)
 	registry := mcp.NewMCPSkillRegistry(manager, logger)
 	handler := NewMCPHandler(registry, manager, logger)
 
@@ -31,7 +31,7 @@ func TestMCPHandlerListServers(t *testing.T) {
 
 func TestMCPHandlerGetServer(t *testing.T) {
 	logger := zap.NewNop()
-	manager := mcp.NewClientManager(logger, nil)
+	manager := mcp.NewClientManager(logger, nil, nil)
 	registry := mcp.NewMCPSkillRegistry(manager, logger)
 	handler := NewMCPHandler(registry, manager, logger)
 
@@ -50,7 +50,7 @@ func TestMCPHandlerGetServer(t *testing.T) {
 
 func TestMCPHandlerListTools(t *testing.T) {
 	logger := zap.NewNop()
-	manager := mcp.NewClientManager(logger, nil)
+	manager := mcp.NewClientManager(logger, nil, nil)
 	registry := mcp.NewMCPSkillRegistry(manager, logger)
 	handler := NewMCPHandler(registry, manager, logger)
 
@@ -70,7 +70,7 @@ func TestMCPHandlerListTools(t *testing.T) {
 
 func TestMCPHandlerGetServerStatus(t *testing.T) {
 	logger := zap.NewNop()
-	manager := mcp.NewClientManager(logger, nil)
+	manager := mcp.NewClientManager(logger, nil, nil)
 	registry := mcp.NewMCPSkillRegistry(manager, logger)
 	handler := NewMCPHandler(registry, manager, logger)
 

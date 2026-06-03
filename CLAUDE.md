@@ -18,9 +18,16 @@ Rule: Define clear success criteria before implementation. Complete verification
 Rule 5: Do Not Assign Non-Linguistic Work to AI Models
 Incident: Claude judged 503 retrys logic via natural language reasoning, breaking strict technical retry policies.
 Rule: AI handles only language tasks: classification, summarization, reasoning. All routing, retry, state machine, and technical control logic must be hard-coded.
-Rule 6: Strict Token Budget — No Silent Overrun
+Rule 6: Strict Token Budget — Automatic Continuation
 Incident: Long debugging sessions looped in outdated context, repeating invalid solutions due to token saturation.
-Rule: Single task max 4k tokens, single session max 30k tokens. When approaching limits, actively summarize, checkpoint, and reset context. Never silently exceed budget.
+Rule: Single task max 4k tokens, single session max 30k tokens.
+When approaching token limits, the AI will AUTOMATICALLY:
+1. Summarize completed work
+2. Create a checkpoint
+3. Reset context to minimal necessary
+4. CONTINUE executing the task WITHOUT human intervention
+The AI will only pause and ask for confirmation if the session exceeds 28k tokens (95% of max).
+No silent overrun, no unnecessary stops.
 Rule 7: Resolve Conflicts Explicitly — No Compromise
 Incident: AI merged two conflicting error-handling logics, creating hybrid broken code that swallowed errors twice.
 Rule: Facing conflicting implementations, choose one valid approach, mark the other for removal. Never write ambiguous, hybrid, compromise code.

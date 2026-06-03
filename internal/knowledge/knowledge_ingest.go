@@ -10,6 +10,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/document"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/embedding"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/textchunk"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"go.uber.org/zap"
 )
@@ -42,6 +43,7 @@ func NewKnowledgeIngest(
 }
 
 type IngestDocumentRequest struct {
+	TenantID     string
 	Workspace    string
 	DocumentData []byte
 	FileName     string
@@ -115,6 +117,9 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 	ki.logger.Info("vectors generated", zap.Int("count", len(docChunks)))
 
 	collectionName := fmt.Sprintf("%s_kb", req.Workspace)
+	if col, err := tenantdb.TenantCollection(ctx, "kb"); err == nil {
+		collectionName = col
+	}
 
 	if err := ki.vectorStore.CreateCollection(ctx, collectionName); err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
@@ -149,7 +154,11 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 			"created_at": now,
 		}
 
-		if err := ki.graphRAG.CreateNode(ctx, "Document", docNodeProps); err != nil {
+		docLabel := "Document"
+		if l, err := tenantdb.TenantLabel(ctx, "Document"); err == nil {
+			docLabel = l
+		}
+		if err := ki.graphRAG.CreateNode(ctx, docLabel, docNodeProps); err != nil {
 			ki.logger.Warn("failed to create document node", zap.Error(err))
 			result.Errors = append(result.Errors, fmt.Sprintf("graph document node failed: %v", err))
 		} else {
@@ -164,7 +173,11 @@ func (ki *KnowledgeIngest) IngestDocument(ctx context.Context, req IngestDocumen
 					"created_at":  now,
 				}
 
-				if err := ki.graphRAG.CreateNode(ctx, "DocumentChunk", chunkProps); err != nil {
+				chunkLabel := "DocumentChunk"
+				if l, err := tenantdb.TenantLabel(ctx, "DocumentChunk"); err == nil {
+					chunkLabel = l
+				}
+				if err := ki.graphRAG.CreateNode(ctx, chunkLabel, chunkProps); err != nil {
 					ki.logger.Warn("failed to create chunk node", zap.Int("chunk", i), zap.Error(err))
 					result.Errors = append(result.Errors, fmt.Sprintf("graph chunk %d node failed: %v", i, err))
 					continue

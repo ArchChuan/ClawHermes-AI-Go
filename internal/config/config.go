@@ -25,6 +25,7 @@ type Config struct {
 	GitHubClientSecret       string
 	JWTPrivateKeyPEM         string
 	GlobalAdminGitHubLogin   string
+	FrontendURL              string
 }
 
 type Services struct {
@@ -49,6 +50,7 @@ func Load() (*Config, error) {
 		GitHubClientSecret:       getEnv("GITHUB_CLIENT_SECRET", ""),
 		JWTPrivateKeyPEM:         getEnv("JWT_PRIVATE_KEY_PEM", ""),
 		GlobalAdminGitHubLogin:   getEnv("GLOBAL_ADMIN_GITHUB_LOGIN", ""),
+		FrontendURL:              getEnv("FRONTEND_URL", "http://localhost:3000"),
 	}, nil
 }
 

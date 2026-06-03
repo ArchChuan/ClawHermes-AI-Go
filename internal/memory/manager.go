@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
 
@@ -14,6 +16,7 @@ type MemoryManager struct {
 	longTerm    VectorMemory
 	entity      EntityMemory
 	persistence Persistence
+	pool        *pgxpool.Pool
 	config      *MemoryConfig
 	logger      *zap.Logger
 	mu          sync.RWMutex
@@ -26,17 +29,19 @@ func NewMemoryManager(
 	vectorMemory VectorMemory,
 	entityMemory EntityMemory,
 	persistence Persistence,
+	pool *pgxpool.Pool,
 ) *MemoryManager {
 	if config == nil {
 		config = DefaultMemoryConfig()
 	}
 
 	m := &MemoryManager{
-		config:     config,
-		logger:     logger,
-		longTerm:   vectorMemory,
-		entity:     entityMemory,
+		config:      config,
+		logger:      logger,
+		longTerm:    vectorMemory,
+		entity:      entityMemory,
 		persistence: persistence,
+		pool:        pool,
 	}
 
 	// Initialize short-term memory based on config
@@ -49,6 +54,32 @@ func NewMemoryManager(
 	}
 
 	return m
+}
+
+// execTenant runs fn in a transaction with search_path set to the tenant schema from ctx.
+func (m *MemoryManager) execTenant(ctx context.Context, tenantID string, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	if m.pool == nil || tenantID == "" {
+		return nil
+	}
+	tx, err := m.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("memory: begin tx: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback(ctx)
+			panic(p)
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SET LOCAL search_path = tenant_"+tenantID+", public"); err != nil {
+		_ = tx.Rollback(ctx)
+		return fmt.Errorf("memory: set search_path: %w", err)
+	}
+	if err := fn(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Add adds a memory entry to all applicable memory systems
@@ -79,6 +110,20 @@ func (m *MemoryManager) Add(ctx context.Context, entry *MemoryEntry) error {
 		if _, err := m.entity.ExtractEntities(ctx, entry.Content, sessionCtx); err != nil {
 			m.logger.Warn("failed to extract entities", zap.Error(err))
 		}
+	}
+
+	// Persist to DB when pool and tenantID are available
+	if err := m.execTenant(ctx, entry.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO memory_entries (id, type, role, content, session_id, user_id, agent_id, importance, expires_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
+			entry.ID, string(entry.Type), entry.Role, entry.Content,
+			entry.SessionID, entry.UserID, entry.AgentID,
+			entry.Importance, entry.ExpiresAt,
+		)
+		return err
+	}); err != nil {
+		m.logger.Warn("failed to persist memory entry", zap.Error(err))
 	}
 
 	return nil
