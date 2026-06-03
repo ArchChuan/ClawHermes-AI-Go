@@ -1,3 +1,4 @@
+// Package a2a provides agent-to-agent communication and orchestration.
 package a2a
 
 import "fmt"
@@ -6,12 +7,12 @@ import "fmt"
 type ErrorType string
 
 const (
-	ErrorTypeDiscovery    ErrorType = "discovery"
-	ErrorTypeNegotiation  ErrorType = "negotiation"
+	ErrorTypeDiscovery     ErrorType = "discovery"
+	ErrorTypeNegotiation   ErrorType = "negotiation"
 	ErrorTypeOrchestration ErrorType = "orchestration"
-	ErrorTypeProtocol    ErrorType = "protocol"
-	ErrorTypeTimeout     ErrorType = "timeout"
-	ErrorTypeValidation  ErrorType = "validation"
+	ErrorTypeProtocol      ErrorType = "protocol"
+	ErrorTypeTimeout       ErrorType = "timeout"
+	ErrorTypeValidation    ErrorType = "validation"
 )
 
 // A2AError represents an A2A protocol error

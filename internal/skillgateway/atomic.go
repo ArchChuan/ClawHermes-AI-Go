@@ -1,3 +1,4 @@
+// Package skillgateway provides skill gateway and routing.
 package skillgateway
 
 import (
@@ -48,8 +49,8 @@ func newAtomicEngine(
 }
 
 const (
-	defaultTimeout  = 30 * time.Second
-	maxRetryDelay   = 10 * time.Second
+	defaultTimeout   = 30 * time.Second
+	maxRetryDelay    = 10 * time.Second
 	maxRetryAttempts = 10
 )
 

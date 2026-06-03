@@ -1,3 +1,4 @@
+// Package mcp provides MCP (Model Context Protocol) client implementation.
 package mcp
 
 import (
@@ -62,11 +63,11 @@ func (w *MCPSkillWrapper) Execute(input any) (any, error) {
 
 // MCPSkillAdapter 适配器，管理 MCP Skills
 type MCPSkillAdapter struct {
-	serverID    string
-	manager     *ClientManager
-	skills      map[string]*MCPSkillWrapper
-	mu          sync.RWMutex
-	logger      *zap.Logger
+	serverID string
+	manager  *ClientManager
+	skills   map[string]*MCPSkillWrapper
+	mu       sync.RWMutex
+	logger   *zap.Logger
 }
 
 // NewMCPSkillAdapter 创建新的适配器

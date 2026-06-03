@@ -1,3 +1,4 @@
+// Package llmgateway provides LLM gateway abstraction.
 package llmgateway
 
 import (
@@ -7,9 +8,9 @@ import (
 )
 
 type Config struct {
-	OpenAIKey      string
-	AnthropicKey   string
-	OllamaEndpoint string
+	OpenAIKey       string
+	AnthropicKey    string
+	OllamaEndpoint  string
 	DefaultProvider ModelProvider
 }
 

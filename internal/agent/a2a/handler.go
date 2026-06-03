@@ -1,3 +1,4 @@
+// Package a2a provides agent-to-agent communication and orchestration.
 package a2a
 
 import (
@@ -9,13 +10,13 @@ import (
 
 // ProtocolHandler handles A2A message routing
 type ProtocolHandler struct {
-	inbox      chan *Message
-	outbox     chan *Message
-	handlers   map[MessageType][]func(context.Context, *Message) (*Message, error)
-	mu         sync.RWMutex
-	logger     *zap.Logger
-	running    bool
-	wg         sync.WaitGroup
+	inbox    chan *Message
+	outbox   chan *Message
+	handlers map[MessageType][]func(context.Context, *Message) (*Message, error)
+	mu       sync.RWMutex
+	logger   *zap.Logger
+	running  bool
+	wg       sync.WaitGroup
 }
 
 // NewProtocolHandler creates a new protocol handler

@@ -1,3 +1,4 @@
+// Package skill provides skill execution framework.
 package skill
 
 import (
@@ -32,9 +33,9 @@ func (cs *CodeSkill) Execute(input interface{}) (interface{}, error) {
 
 	// For now, return a placeholder response
 	return map[string]interface{}{
-		"code":      cs.Code,
-		"language":  cs.Language,
-		"output":    "Code execution not yet implemented",
-		"error":     nil,
+		"code":     cs.Code,
+		"language": cs.Language,
+		"output":   "Code execution not yet implemented",
+		"error":    nil,
 	}, nil
 }

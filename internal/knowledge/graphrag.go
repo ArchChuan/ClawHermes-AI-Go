@@ -1,3 +1,4 @@
+// Package knowledge provides knowledge base and RAG services.
 package knowledge
 
 import (
@@ -45,7 +46,7 @@ func NewGraphRAG(uri, user, password string, logger *zap.Logger) *GraphRAG {
 	return &GraphRAG{
 		uri:    uri,
 		user:   user,
-		passwd:  password,
+		passwd: password,
 		logger: logger,
 	}
 }

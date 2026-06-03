@@ -1,3 +1,4 @@
+// Package textchunk provides text chunking utilities.
 package textchunk
 
 import (
@@ -7,10 +8,10 @@ import (
 )
 
 type Chunker struct {
-	logger        *zap.Logger
-	maxChunkSize  int
-	overlapSize   int
-	minChunkSize  int
+	logger       *zap.Logger
+	maxChunkSize int
+	overlapSize  int
+	minChunkSize int
 }
 
 func NewChunker(logger *zap.Logger) *Chunker {
