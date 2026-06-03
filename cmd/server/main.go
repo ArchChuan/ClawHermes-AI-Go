@@ -146,7 +146,7 @@ func main() {
 	}
 
 	// 5. HTTP Server component
-	router := api.SetupRouter(cfg, logger, registry, gateway)
+	router := api.SetupRouter(cfg, logger, registry, gateway, pgPool.DB(), redisClient.Client())
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: router,

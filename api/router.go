@@ -25,6 +25,8 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
 	vectorstore "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -34,6 +36,8 @@ func SetupRouter(
 	logger *zap.Logger,
 	registry *orchestrator.Registry,
 	gateway *llmgateway.Gateway,
+	db *pgxpool.Pool,
+	rdb *goredis.Client,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -55,11 +59,13 @@ func SetupRouter(
 		} else {
 			jwtSvc := auth.NewJWTService(rsaKey)
 			ghClient := auth.NewGitHubClient(cfg.GitHubClientID, cfg.GitHubClientSecret, "", "")
+			tokenStore := auth.NewTokenStore(db, rdb)
+			onboardSvc := auth.NewOnboardService(db)
 			authHandler := handler.NewAuthHandler(handler.AuthHandlerDeps{
 				GitHubClient: ghClient,
 				JWTService:   jwtSvc,
-				TokenStore:   nil, // TODO Plan 3: inject pgxpool-backed store
-				OnboardSvc:   nil, // TODO Plan 3: inject pgxpool-backed service
+				TokenStore:   tokenStore,
+				OnboardSvc:   onboardSvc,
 				Logger:       logger,
 				CallbackURL:  "http://localhost:" + cfg.Port + "/auth/github/callback",
 				GlobalAdmin:  cfg.GlobalAdminGitHubLogin,
@@ -172,6 +178,31 @@ func SetupRouter(
 
 	// MCP endpoints
 	mcpHandler.RegisterRoutes(router)
+
+	// Admin routes — global admin only
+	if db != nil {
+		adminHandler := handler.NewAdminHandler(db, logger)
+		tenantHandler := handler.NewTenantHandler(db, logger, cfg.FrontendURL)
+
+		adminGroup := router.Group("/admin", middleware.RequireGlobalAdmin())
+		{
+			adminGroup.GET("/tenants", adminHandler.ListTenants)
+			adminGroup.POST("/tenants", adminHandler.CreateTenant)
+			adminGroup.GET("/tenants/:id", adminHandler.GetTenant)
+			adminGroup.PATCH("/tenants/:id", adminHandler.UpdateTenant)
+			adminGroup.DELETE("/tenants/:id", adminHandler.DeleteTenant)
+		}
+
+		tenantGroup := router.Group("/tenant", middleware.RequireTenantRole("member"))
+		{
+			tenantGroup.GET("/members", tenantHandler.ListMembers)
+			tenantGroup.POST("/members/invite", tenantHandler.InviteMember)
+			tenantGroup.PATCH("/members/:user_id/role", tenantHandler.UpdateMemberRole)
+			tenantGroup.DELETE("/members/:user_id", tenantHandler.RemoveMember)
+			tenantGroup.GET("/settings", tenantHandler.GetSettings)
+			tenantGroup.PATCH("/settings", tenantHandler.UpdateSettings)
+		}
+	}
 
 	return router
 }
