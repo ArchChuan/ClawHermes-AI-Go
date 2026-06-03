@@ -121,7 +121,7 @@ func SetupRouter(
 	ragHandler := handler.NewRAGHandler(ingestSvc, ragService, logger)
 
 	// Initialize agent registry and handler
-	agentRegistry := agent.NewRegistry(logger)
+	agentRegistry := agent.NewRegistry(db, logger)
 	agentHandler := handler.NewAgentHandler(agentRegistry, logger, gateway, metrics)
 
 	// Initialize memory system
