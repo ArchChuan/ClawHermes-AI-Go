@@ -1,8 +1,6 @@
 module github.com/byteBuilderX/ClawHermes-AI-Go
 
-go 1.24.1
-
-toolchain go1.24.10
+go 1.25.0
 
 require (
 	github.com/gin-gonic/gin v1.9.1
