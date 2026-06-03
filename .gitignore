@@ -161,3 +161,4 @@ coverage.txt
 # Goreleaser
 dist/
 
+.claude/worktrees/
