@@ -19,8 +19,12 @@ type Config struct {
 	Neo4jPassword string
 	OtelEndpoint  string
 	OpenAIAPIKey  string
-	PostgresURL   string
-	RedisURL      string
+	PostgresURL              string
+	RedisURL                 string
+	GitHubClientID           string
+	GitHubClientSecret       string
+	JWTPrivateKeyPEM         string
+	GlobalAdminGitHubLogin   string
 }
 
 type Services struct {
@@ -39,8 +43,12 @@ func Load() (*Config, error) {
 		Neo4jPassword: getEnv("NEO4J_PASSWORD", "password"),
 		OtelEndpoint:  getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
 		OpenAIAPIKey:  getEnv("OPENAI_API_KEY", ""),
-		PostgresURL:   getEnv("POSTGRES_URL", "postgres://clawhermes:clawhermes@localhost:5432/clawhermes"),
-		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379"),
+		PostgresURL:              getEnv("POSTGRES_URL", "postgres://clawhermes:clawhermes@localhost:5432/clawhermes"),
+		RedisURL:                 getEnv("REDIS_URL", "redis://localhost:6379"),
+		GitHubClientID:           getEnv("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret:       getEnv("GITHUB_CLIENT_SECRET", ""),
+		JWTPrivateKeyPEM:         getEnv("JWT_PRIVATE_KEY_PEM", ""),
+		GlobalAdminGitHubLogin:   getEnv("GLOBAL_ADMIN_GITHUB_LOGIN", ""),
 	}, nil
 }
 
