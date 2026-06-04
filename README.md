@@ -5,11 +5,14 @@
 ## 定位
 
 面向企业私有化部署的 AI 应用编排平台，融合：
-- OpenClaw Skill 原子化架构
-- Hermes 事件驱动异步通信
-- Harness AI 可观测与灰度发布
-- MCP 统一工具/模型协议
-- GraphRAG 知识增强
+- **OpenClaw Skill Gateway** — 原子化 Skill 执行，内置熔断器、流水线 DSL、审计日志
+- **Hermes 事件总线** — 基于 NATS 的异步事件驱动通信
+- **Harness 生命周期管理** — 统一组件注册、有序启停、健康检查
+- **MCP 统一协议** — Model Context Protocol 工具/模型适配层
+- **GraphRAG 知识增强** — Neo4j 知识图谱 + Milvus 向量检索
+- **A2A 多智能体协作** — Agent-to-Agent 发现、协商、编排协议
+- **三层记忆系统** — 短期（缓冲/窗口/摘要）+ 长期（向量）+ 实体记忆
+- **多租户隔离** — PostgreSQL schema 级租户隔离，GitHub OAuth + JWT 认证
 
 ## 技术栈
 
@@ -20,29 +23,58 @@
 | 事件总线 | NATS | 异步事件驱动 |
 | 向量数据库 | Milvus | 向量存储与检索 |
 | 图数据库 | Neo4j | 知识图谱存储 |
+| 关系数据库 | PostgreSQL | 租户数据、Agent/Skill 持久化 |
+| 缓存 | Redis | Token 存储、会话缓存 |
 | 日志 | Uber Zap | 结构化日志 |
 | 配置 | Spf13 Viper | 配置管理 |
-| 可观测 | OpenTelemetry | 链路追踪与监控 |
+| 可观测 | OpenTelemetry + Prometheus | 链路追踪与指标 |
 | 部署 | Kubernetes/Helm | 云原生部署 |
+| 前端 | React + Vite | Web 控制台 |
 
 ## 架构分层
 
 ```
-┌─────────────────────────────────────────┐
-│  Portal 接入层 (Gin HTTP API)           │
-├─────────────────────────────────────────┤
-│  Hermes 事件总线 (NATS)                 │
-├─────────────────────────────────────────┤
-│  Orchestrator Skill 编排 (Registry)     │
-├─────────────────────────────────────────┤
-│  Skill Runtime 执行环境 (Executor)      │
-├─────────────────────────────────────────┤
-│  GraphRAG 知识记忆 (Neo4j + Milvus)     │
-├─────────────────────────────────────────┤
-│  LLM Gateway + MCP                      │
-├─────────────────────────────────────────┤
-│  Harness AI 运维治理 (可观测)            │
-└─────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│  Portal 接入层 (Gin HTTP API + JWT Auth)            │
+│  GET/POST /skills /agents /memory /knowledge /mcp  │
+│  /auth /admin /tenant                              │
+├────────────────────────────────────────────────────┤
+│  Auth & Multi-Tenancy                              │
+│  GitHub OAuth → JWT(RS256) → Tenant Schema 隔离    │
+├────────────────────────────────────────────────────┤
+│  Harness 组件生命周期管理                            │
+│  Register → Sequential Start → Reverse Stop        │
+├────────────────────────────────────────────────────┤
+│  Hermes 事件总线 (NATS)                             │
+│  Publish / Subscribe  domain.action subject 命名   │
+├────────────────────────────────────────────────────┤
+│  Agent Core                                        │
+│  ReAct / CoT / Planning / ToolCalling / RAG / Swarm│
+│  ┌──────────────┐   ┌───────────────────────────┐  │
+│  │ Agent Registry│   │ A2A Protocol              │  │
+│  │ (PostgreSQL) │   │ Sequential/Parallel/       │  │
+│  └──────────────┘   │ Hierarchical/Pipeline/Swarm│  │
+│                     └───────────────────────────┘  │
+├────────────────────────────────────────────────────┤
+│  Skill Gateway (原子化执行引擎)                      │
+│  Provider Registry → Circuit Breaker → Retry       │
+│  → Atomic Engine → Pipeline DSL → Audit Log        │
+├────────────────────────────────────────────────────┤
+│  三层记忆系统                                        │
+│  短期(Buffer/Window/Summary) + 长期(Vector) + Entity│
+├────────────────────────────────────────────────────┤
+│  GraphRAG 知识引擎 (Neo4j + Milvus)                 │
+│  文档解析 → 文本分块 → Embedding → 向量检索 + 图查询  │
+├────────────────────────────────────────────────────┤
+│  LLM Gateway                                       │
+│  OpenAI / Anthropic / Ollama  统一 Complete/Embed  │
+├────────────────────────────────────────────────────┤
+│  MCP (Model Context Protocol)                      │
+│  Client Manager → Skill Adapter → Cache            │
+├────────────────────────────────────────────────────┤
+│  可观测性 (OpenTelemetry + Prometheus + Zap)        │
+│  Trace / Metrics / Structured Logging              │
+└────────────────────────────────────────────────────┘
 ```
 
 ## 快速启动
@@ -50,492 +82,420 @@
 ### 前置要求
 
 - Go 1.22+
-- Docker
-- Make
-- Kubernetes (kubectl) - 用于云原生部署
-- Helm - 用于包管理
-- (可选) WSL 2 - 用于 Windows 环境
+- Docker & Docker Compose
+- Kubernetes (kubectl) — 用于云原生部署
+- Helm — 用于包管理
 
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/clawhermes/clawhermes-ai-go.git
-cd clawhermes-ai-go
+git clone https://github.com/byteBuilderX/ClawHermes-AI-Go.git
+cd ClawHermes-AI-Go
 ```
 
 ### 2. 配置环境
 
 ```bash
 cp .env.example .env
+# 编辑 .env，填写 API Key 和各服务地址
 ```
 
 ### 3. 本地开发启动
 
 ```bash
-# 构建并运行应用
 ./start.sh
 ```
 
-或者手动启动：
+或手动启动：
 
 ```bash
-# 构建应用
 make build
-
-# 运行应用
 make run
 ```
 
 ### 4. 云原生部署 (Kubernetes)
 
-#### 4.1 使用 Kubectl 部署
-
 ```bash
 # 构建 Docker 镜像
 make docker-build
 
-# 部署依赖服务
+# 部署依赖服务（NATS、Milvus、Neo4j、PostgreSQL、Redis）
 kubectl apply -f k8s/dependencies.yaml
 
-# 等待依赖服务就绪
+# 等待依赖就绪
 kubectl wait --for=condition=ready pod -l app=nats --timeout=120s
-kubectl wait --for=condition=ready pod -l app=neo4j --timeout=120s
 kubectl wait --for=condition=ready pod -l app=milvus --timeout=120s
 
 # 部署主应用
 kubectl apply -f k8s/deployment.yaml
 ```
 
-#### 4.2 使用 Helm 部署
+#### 使用 Helm
 
 ```bash
-# 构建 Docker 镜像
 make docker-build
-
-# 安装 Helm Chart
 make helm-install
 ```
 
-### 5. WSL 2 部署 (适用于 Windows)
-
-```bash
-# 确保已启用 WSL 2 和 Kubernetes (Docker Desktop 或 Minikube)
-./wsl-start.sh
-```
-
-### 6. 验证健康状态
+### 5. 验证健康状态
 
 ```bash
 curl http://localhost:8080/health
-# 响应: {"status":"ok"}
+# {"status":"ok","service":"ClawHermes AI Go"}
 ```
-
-### 7. 停止服务
-
-#### 本地环境
-```bash
-# 停止服务
-./stop.sh
-```
-
-#### Kubernetes 环境
-```bash
-# 使用 kubectl
-make k8s-delete
-
-# 或使用 Helm
-make helm-uninstall
-```
-
-#### WSL 环境
-```bash
-./wsl-stop.sh
-```
-
-## 部署详情
-
-更详细的部署说明请参见 [部署指南](docs/DEPLOYMENT_GUIDE.md) 文档，其中包括：
-
-- 本地开发环境搭建
-- Kubernetes 云原生部署
-- Helm 包管理部署
-- WSL 2 环境部署
-- 环境配置说明
-- 故障排除指南
-- 监控和可观测性配置
-- 升级和维护说明
 
 ## API 端点
 
-### 创建 Skill
+### 认证 (Auth)
 
-```bash
-POST /skills
-Content-Type: application/json
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/auth/github` | 发起 GitHub OAuth 登录 |
+| GET | `/auth/github/callback` | GitHub OAuth 回调 |
+| POST | `/auth/register` | 通过邀请 Token 完成注册 |
+| POST | `/auth/refresh` | 刷新 JWT |
+| POST | `/auth/logout` | 退出登录 |
+| GET | `/auth/me` | 获取当前用户信息 |
 
-{
-  "name": "Python Calculator",
-  "description": "A simple calculator skill",
-  "type": "code",
-  "code": "def add(a, b): return a + b",
-  "language": "python"
-}
-```
+> 认证路由仅在配置了 `GITHUB_CLIENT_ID` 时启用。
 
-响应：
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Python Calculator",
-  "description": "A simple calculator skill",
-  "type": "code",
-  "created_at": "2026-04-22T22:09:35Z"
-}
-```
+### 管理员 (Admin)，需 `global_admin` 角色
 
-### 获取 Skill 信息
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/tenants` | 列出所有租户 |
+| POST | `/admin/tenants` | 创建租户 |
+| GET | `/admin/tenants/:id` | 获取租户详情 |
+| PATCH | `/admin/tenants/:id` | 更新租户信息 |
+| DELETE | `/admin/tenants/:id` | 删除租户 |
 
-```bash
-GET /skills/{id}
-```
+### 租户管理 (Tenant)，需 `member` 角色
 
-响应：
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Python Calculator",
-  "description": "A simple calculator skill",
-  "type": "code",
-  "created_at": "2026-04-22T22:09:35Z"
-}
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/tenant/members` | 列出成员（分页） |
+| POST | `/tenant/members/invite` | 邀请成员（需 admin/owner） |
+| PATCH | `/tenant/members/:user_id/role` | 更新成员角色 |
+| DELETE | `/tenant/members/:user_id` | 移除成员 |
+| GET | `/tenant/settings` | 获取租户设置 |
+| PATCH | `/tenant/settings` | 更新租户设置 |
 
-### 执行 Skill
+### Skill
 
-```bash
-POST /skills/{id}/execute
-Content-Type: application/json
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/skills` | 列出所有 Skill |
+| POST | `/skills` | 创建 Skill |
+| GET | `/skills/:id` | 获取 Skill 详情 |
+| PUT | `/skills/:id` | 更新 Skill |
+| DELETE | `/skills/:id` | 删除 Skill |
 
-{
-  "input": {"a": 5, "b": 3}
-}
-```
+### Agent
 
-响应：
-```json
-{
-  "result": 8,
-  "error": ""
-}
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/agents` | 列出所有 Agent |
+| POST | `/agents` | 创建 Agent |
+| GET | `/agents/:id` | 获取 Agent 详情 |
+| POST | `/agents/:id/execute` | 执行 Agent |
+| DELETE | `/agents/:id` | 删除 Agent |
 
-### 健康检查
+### 知识库 (Knowledge / RAG)
 
-```bash
-GET /health
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/knowledge/ingest` | 上传并摄入文档 |
+| POST | `/knowledge/query` | RAG 查询 |
 
-响应：
-```json
-{
-  "status": "ok"
-}
-```
+### 记忆 (Memory)
 
-## 可观测性
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/memory/sessions` | 创建记忆会话 |
+| POST | `/memory` | 添加记忆条目 |
+| GET | `/memory/:id` | 获取记忆条目 |
+| POST | `/memory/search` | 语义搜索记忆 |
+| DELETE | `/memory/:id` | 删除记忆条目 |
+| GET | `/memory/stats` | 获取记忆统计 |
+| DELETE | `/memory/session/:session_id` | 清空会话记忆 |
+| GET | `/memory/entities` | 获取实体记忆 |
+| POST | `/memory/extract-entities` | 提取实体 |
+| GET | `/memory/summary/:session_id` | 获取会话摘要 |
 
-项目集成了 OpenTelemetry，支持分布式追踪、指标收集和日志记录：
+### MCP
 
-- **追踪**: 通过 OTLP 协议发送到 collector
-- **指标**: 收集请求延迟、错误率、吞吐量等
-- **日志**: 结构化日志输出到标准输出
+MCP 路由由 `MCPHandler.RegisterRoutes` 动态注册，详见 `internal/mcp/` 配置。
 
-配置参考 [otel-collector-config.yaml](otel-collector-config.yaml)
+### 其他
 
-## 常用命令
-
-```bash
-# 构建
-make build
-
-# 运行
-make run
-
-# 测试
-make test
-
-# 测试覆盖率
-make test-coverage
-
-# 代码格式化
-make fmt
-
-# 静态检查
-make vet
-
-# Lint 检查
-make lint
-
-# Docker 相关
-make docker-build       # 构建应用镜像
-make docker-run         # 运行应用容器
-
-# Kubernetes 相关
-make k8s-deploy         # 部署到 Kubernetes
-make k8s-delete         # 从 Kubernetes 删除
-
-# Helm 相关
-make helm-install       # 使用 Helm 安装
-make helm-uninstall     # 使用 Helm 卸载
-
-# 清理构建产物
-make clean
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| GET | `/metrics` | Prometheus 指标 |
 
 ## 核心概念
 
-### Skill 系统
+### Skill Gateway
 
 Skill 是 ClawHermes 的原子化能力单元，支持三种类型：
 
-- **Builtin Skill**: 内置能力，直接实现业务逻辑
-- **Code Skill**: 代码执行能力，支持 Python、JavaScript 等语言
-- **LLM Skill**: 大模型调用能力，支持 OpenAI、Claude、Ollama 等
+- **Registry Skill**: 通过 `orchestrator.Registry` 注册的内置 Skill
+- **Code Skill**: 代码执行能力（Python、JavaScript 等）
+- **LLM Skill**: 大模型调用能力（OpenAI、Claude、Ollama）
+- **MCP Skill**: 通过 MCP 协议接入的外部工具
 
-```go
-// 创建 Skill
-skill := skill.NewCodeSkill(
-    "skill-1",
-    "Calculator",
-    "A simple calculator",
-    "def add(a, b): return a + b",
-    "python",
-)
+SkillGateway 执行链：
 
-// 执行 Skill
-executor := skill.NewExecutor(registry)
-result := executor.Execute(skill.ExecutionContext{
-    SkillID: "skill-1",
-    Input:   map[string]interface{}{"a": 5, "b": 3},
-    Timeout: 30 * time.Second,
-})
+```
+SkillRequest
+  → ProviderRegistry.Resolve(skillID)
+  → CircuitBreaker.Allow(skillID)   // 熔断保护
+  → AtomicEngine.execute()          // 带超时 + 指数退避重试
+  → Auditor.log()                   // 审计日志
+  → PipelineEngine.execute()        // 多步骤编排
 ```
 
-### Hermes 事件总线
-
-基于 NATS 的事件驱动异步通信框架：
+**Pipeline DSL 示例：**
 
 ```go
-// 发布事件
-event := &hermes.Event{
-    Type:      "skill.executed",
-    Timestamp: time.Now().Unix(),
-    Data:      result,
-    Source:    "skill-executor",
+pipeline := skillgateway.NewPipelineBuilder("my-pipeline").
+    Step("fetch", "fetch-skill", input).
+    If("need-translate", func(ctx StepContext) bool {
+        return ctx["$steps.fetch.output"].(string) != ""
+    }).
+    Then(NewPipelineBuilder("").Step("translate", "translate-skill", nil)).
+    EndIf().
+    Parallel("enrich",
+        NewPipelineBuilder("").Step("tag", "tag-skill", nil),
+        NewPipelineBuilder("").Step("classify", "classify-skill", nil),
+    ).
+    Build()
+```
+
+### Agent 系统
+
+```go
+config := &agent.AgentConfig{
+    ID:            "agent-001",
+    Name:          "My Agent",
+    Type:          agent.ReActAgent,  // react/cot/planning/tool_calling/rag/swarm
+    SystemPrompt:  "You are a helpful assistant.",
+    MaxIterations: 10,
 }
-hermesClient.Publish(event)
+a := agent.NewBaseAgent(config, logger)
+registry.Register(ctx, a)
 
-// 订阅事件
-hermesClient.Subscribe("skill.executed", func(event *hermes.Event) error {
-    log.Printf("Skill executed: %v", event.Data)
-    return nil
-})
+result, err := a.Execute(ctx, "用户输入",
+    agent.WithMaxSteps(10),
+    agent.WithMemory(true),
+    agent.WithTemperature(0.7),
+)
 ```
 
-### Orchestrator 编排
+### A2A 多智能体协作
 
-Skill 注册与管理：
+`internal/agent/a2a/` 实现 Agent-to-Agent 协议：
+
+- **Discovery**: 能力注册与发现
+- **Negotiation**: 协作条件协商
+- **Orchestrator**: 创建执行计划，支持 5 种策略：`sequential` / `parallel` / `hierarchical` / `pipeline` / `swarm`
+- **Messages**: 通过 Inbox/Outbox 异步处理
 
 ```go
-registry := orchestrator.NewRegistry()
-
-// 注册 Skill
-registry.Register(skill.GetID(), skill)
-
-// 查询 Skill
-skill, ok := registry.Get(skillID)
+orch := a2a.NewOrchestrator(logger)
+plan, _ := orch.CreatePlan(ctx, collaborationID, "分析任务",
+    a2a.StrategyParallel, participants)
 ```
 
-### 可观测
+### 三层记忆系统
 
-结构化日志、指标收集、链路追踪：
+```
+短期记忆 (ShortTerm)
+├── ConversationBufferMemory   — 无限缓冲
+├── ConversationWindowMemory   — 滑动窗口（ShortTermWindowSize 条）
+└── ConversationSummaryMemory  — 自动摘要压缩
+
+长期记忆 (LongTerm)  → Milvus 向量检索，支持语义搜索 + 混合检索
+实体记忆  (Entity)   → 提取并持久化命名实体关系
+```
 
 ```go
-// 创建 Logger
-logger, _ := observability.NewLogger("production")
-
-// 记录指标
-metrics := observability.NewMetrics(logger)
-metrics.RecordSkillExecution("skill-1", 123.45, true)
-metrics.RecordAPIRequest("POST", "/skills", 201, 45.67)
+memManager := memory.NewMemoryManager(config, logger, vectorMemory, entityMemory, persistence, pool)
+// Agent 自动注入：agent.SetMemoryManager(memManager)
 ```
 
 ### LLM Gateway
 
-支持多种大模型提供商的统一网关：
-
 ```go
-// 初始化 Gateway
-cfg := llmgateway.LoadConfig()
-gateway := llmgateway.InitializeGateway(cfg, logger)
+gateway := llmgateway.NewGateway()
+gateway.RegisterClient(llmgateway.ProviderOpenAI, openaiClient)
+gateway.RegisterClient(llmgateway.ProviderAnthropic, anthropicClient)
+gateway.RegisterEmbeddingClient(llmgateway.ProviderOpenAI, embedClient)
+gateway.SetDefault(llmgateway.ProviderOpenAI)
 
-// 创建 LLM Skill
-llmSkill := skill.NewLLMSkill("skill-1", "GPT-4", "Call GPT-4", gateway, logger)
-
-// 执行 Skill
-result, err := llmSkill.Execute(map[string]interface{}{
-    "model":   "gpt-4",
-    "prompt":  "What is AI?",
-    "temperature": 0.7,
+resp, err := gateway.Complete(ctx, &llmgateway.CompletionRequest{
+    Model: "gpt-4",
+    Messages: []llmgateway.Message{{Role: "user", Content: "Hello"}},
 })
 ```
 
-**支持的模型提供商**：
-- OpenAI (GPT-4, GPT-3.5-turbo)
-- Anthropic (Claude-3-opus, Claude-3-sonnet)
-- Ollama (Llama2, Mistral, Neural-chat 等开源模型)
+**支持的提供商：** OpenAI · Anthropic · Ollama
+
+### GraphRAG 知识引擎
+
+```
+文档上传 → Parser 解析 → Chunker 分块
+→ EmbeddingService 向量化
+→ VectorStore (Milvus) 存储
+→ GraphRAG (Neo4j) 知识图谱关联
+→ RAGService.Query() 混合检索召回
+```
+
+### 多租户隔离
+
+- 每个租户在 PostgreSQL 中拥有独立 schema：`tenant_<tenant_id>`
+- JWT Claims 携带 `tenant_id` + `role`，中间件自动设置 `search_path`
+- 角色体系：`global_admin` > `owner` > `admin` > `member`
+
+### Harness 生命周期
+
+```go
+harness := harnesspkg.New(logger)
+harness.Register(hermesComponent)
+harness.Register(otherComponent)
+harness.Start(ctx)   // 顺序启动
+defer harness.Stop(ctx) // 逆序停止
+```
+
+## 可观测性
+
+### Prometheus 指标
+
+```
+http_requests_total{method, path, status}
+http_request_duration_seconds{method, path}
+skill_executions_total{skill_id, status}
+skill_circuit_breaker_state{skill_id}       // 0=closed 1=open 2=half_open
+agent_executions_total{agent_id, type, status}
+llm_requests_total{model, provider, status}
+llm_request_duration_seconds{model, provider}
+llm_token_usage_total{model, token_type}
+knowledge_queries_total{type, status}
+hermes_events_total{type, status}
+```
+
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (admin/admin)
+- Jaeger: `http://localhost:16686`
+- Metrics 端点: `GET /metrics`
+
+### OpenTelemetry 追踪
+
+每个 Handler 通过 `middleware/trace.go` 自动创建 Span；内部关键操作手动创建子 Span，命名格式：`{component}.{operation}`。
 
 ## 环境配置
 
-编辑 `.env` 文件配置以下变量：
-
 ```env
-# 服务配置
+# 服务
 PORT=8080
 
-# NATS 配置
+# PostgreSQL
+POSTGRES_URL=postgres://user:password@localhost:5432/clawhermes
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# NATS
 NATS_URL=nats://localhost:4222
 
-# Milvus 配置
+# Milvus
 MILVUS_HOST=localhost
 MILVUS_PORT=19530
 
-# Neo4j 配置
+# Neo4j
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
 
-# OpenTelemetry 配置
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+# GitHub OAuth + JWT
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+JWT_PRIVATE_KEY_PEM=-----BEGIN RSA PRIVATE KEY-----...
+GLOBAL_ADMIN_GITHUB_LOGIN=your-github-login
 
-# LLM 配置
-OPENAI_API_KEY=sk-your-openai-key
-ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
+# LLM
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 OLLAMA_ENDPOINT=http://localhost:11434
 DEFAULT_LLM_PROVIDER=openai
+
+# OpenTelemetry
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
-详见 [LLM 集成指南](docs/LLM_INTEGRATION.md)
+## 常用命令
+
+```bash
+make build           # 编译
+make run             # 运行
+make test            # 单元测试
+make test-coverage   # 测试覆盖率
+make fmt             # 代码格式化
+make vet             # 静态检查
+make lint            # Lint 检查
+make docker-build    # 构建 Docker 镜像
+make k8s-deploy      # 部署到 Kubernetes
+make k8s-delete      # 从 Kubernetes 删除
+make helm-install    # Helm 安装
+make helm-uninstall  # Helm 卸载
+make clean           # 清理构建产物
+```
 
 ## 开发指南
 
-### 添加新的 Skill
+### 添加新 Skill
 
-1. 在 `internal/skill/` 中创建新的 Skill 类型
-2. 实现 `Skill` 接口或继承 `BaseSkill`
-3. 如需执行，实现 `SkillExecutor` 接口
-4. 在 API 中注册 Skill
+1. 在 `internal/skill/` 中实现 `Skill` 接口（继承 `BaseSkill`）
+2. 如需执行，实现 `SkillExecutor` 接口的 `Execute(input interface{}) (interface{}, error)`
+3. 通过 `orchestrator.Registry.Register(ctx, id, skill)` 注册
+4. （可选）通过 `skillgateway.ProviderRegistry` 注册为 Provider 接入熔断/流水线
 
 ### 运行测试
 
 ```bash
-# 运行所有测试
-make test
-
-# 运行特定包的测试
-go test -v ./internal/skill
-
-# 生成覆盖率报告
-make test-coverage
+go test -v -race -timeout 30s ./...
+go test -v ./internal/skill/...    # 指定包
+make test-coverage                  # 生成覆盖率报告
 ```
 
-### 代码风格
+### 代码规范
 
-- 遵循 Go 官方代码风格指南
-- 使用 `make fmt` 格式化代码
-- 使用 `make vet` 进行静态检查
-- 使用 `make lint` 进行 Lint 检查
-
-## 云原生特性
-
-### Kubernetes 部署
-
-项目提供了完整的 Kubernetes 部署方案：
-
-- **Helm Chart**: 用于简化部署和管理
-- **ConfigMap/Secret**: 管理配置和敏感信息
-- **PersistentVolume**: 数据持久化存储
-- **Service**: 服务发现和负载均衡
-- **Health Checks**: 存活和就绪探针
-
-### 可观测性
-
-- **OpenTelemetry**: 统一遥测数据收集
-- **分布式追踪**: 跨服务请求追踪
-- **指标监控**: 性能和业务指标
-- **结构化日志**: 统一日志格式
-
-### 容器化
-
-- **多阶段构建**: 减小镜像大小
-- **安全基线**: 非root用户运行
-- **最小依赖**: 只包含运行时必要组件
+- Zap 结构化日志，禁止 `fmt.Print`
+- 错误用 `fmt.Errorf("operation: %w", err)` 包装
+- 每次变更后运行 `go vet && go test -short ./...`
+- 行长 ≤ 120 字符；import 顺序：stdlib → 第三方 → internal
 
 ## 商业化能力
 
-- ✅ 多租户隔离
-- ✅ 私有化部署
-- ✅ 云原生支持
+- ✅ 多租户隔离（PostgreSQL schema 级）
+- ✅ GitHub OAuth + JWT RS256 认证
+- ✅ Skill 熔断器 + 流水线编排
+- ✅ A2A 多智能体协作（5 种策略）
+- ✅ 三层记忆系统
+- ✅ GraphRAG 知识增强
+- ✅ 私有化部署 / 云原生 Kubernetes
+- ✅ 全链路可观测（OTel + Prometheus + Grafana）
 - 🔄 Skill 插件市场
 - 🔄 AI 成本治理
 - 🔄 灰度发布
-- 🔄 安全合规
-
-## 依赖管理
-
-项目使用 Go Modules 管理依赖：
-
-```bash
-# 添加新依赖
-go get github.com/package/name
-
-# 更新依赖
-go get -u github.com/package/name
-
-# 清理未使用的依赖
-go mod tidy
-
-# 下载所有依赖
-go mod download
-```
-
-## 故障排除
-
-### 端口被占用
-
-如果 8080 端口被占用，修改 `.env` 中的 `PORT` 变量：
-
-```env
-PORT=8081
-```
-
-### Kubernetes 部署问题
-
-检查 Pod 状态：
-
-```bash
-kubectl get pods
-kubectl describe pod <pod-name>
-kubectl logs <pod-name>
-```
 
 ## 许可证
 
-Apache License 2.0 - 详见 [LICENSE](LICENSE)
+Apache License 2.0 — 详见 [LICENSE](LICENSE)
 
 ## 贡献指南
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交 Issue 和 Pull Request！详见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 联系方式
 
