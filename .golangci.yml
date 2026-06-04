@@ -2,16 +2,24 @@ version: "2"
 
 run:
   timeout: 5m
-  tests: false
 
 linters:
   default: none
   enable:
+    # correctness
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
+    # security
+    - gosec
+    # HTTP safety
+    - bodyclose
+    - noctx
+    # style / quality
+    - revive
+    - gocritic
 
 formatters:
   enable:
@@ -20,10 +28,12 @@ formatters:
 
 issues:
   exclude-rules:
-    # Test files: unchecked errors are acceptable
+    # Test files: unchecked errors and gosec findings are acceptable
     - path: _test\.go
       linters:
         - errcheck
+        - gosec
+        - gocritic
 
     # defer Close/Sync is idiomatic Go — error not actionable at call site
     - text: 'Error return value of `.*\.(Close|Sync|Stop)` is not checked'
