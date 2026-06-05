@@ -55,11 +55,11 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 	}
 
 	rows, err := h.db.Query(c.Request.Context(),
-		`SELECT tm.user_id, u.email, tm.role, tm.created_at
+		`SELECT tm.user_id, COALESCE(u.email, ''), tm.role, tm.joined_at
 		 FROM public.tenant_members tm
 		 JOIN public.users u ON u.id = tm.user_id
 		 WHERE tm.tenant_id=$1
-		 ORDER BY tm.created_at DESC LIMIT $2 OFFSET $3`,
+		 ORDER BY tm.joined_at DESC LIMIT $2 OFFSET $3`,
 		tenantID, pageSize, offset)
 	if err != nil {
 		h.logger.Error("list members failed", zap.Error(err))
@@ -194,10 +194,11 @@ func (h *TenantHandler) GetSettings(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Code: 401, Message: "tenant_id missing"})
 		return
 	}
+	var tenantName string
 	var settingsJSON []byte
 	err := h.db.QueryRow(c.Request.Context(),
-		"SELECT settings FROM public.tenants WHERE id=$1 AND deleted_at IS NULL", tenantID,
-	).Scan(&settingsJSON)
+		"SELECT name, settings FROM public.tenants WHERE id=$1 AND deleted_at IS NULL", tenantID,
+	).Scan(&tenantName, &settingsJSON)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Code: 404, Message: "tenant not found"})
 		return
@@ -211,7 +212,7 @@ func (h *TenantHandler) GetSettings(c *gin.Context) {
 	} else {
 		settings = map[string]interface{}{}
 	}
-	c.JSON(http.StatusOK, model.SettingsResponse{TenantID: tenantID, Settings: settings})
+	c.JSON(http.StatusOK, model.SettingsResponse{TenantID: tenantID, TenantName: tenantName, Settings: settings})
 }
 
 // UpdateSettings PATCH /tenant/settings

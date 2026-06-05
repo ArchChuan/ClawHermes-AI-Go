@@ -80,6 +80,7 @@ type UpdateSettingsRequest struct {
 
 // SettingsResponse wraps the current settings JSONB.
 type SettingsResponse struct {
-	TenantID string                 `json:"tenant_id"`
-	Settings map[string]interface{} `json:"settings"`
+	TenantID   string                 `json:"tenant_id"`
+	TenantName string                 `json:"tenant_name"`
+	Settings   map[string]interface{} `json:"settings"`
 }
