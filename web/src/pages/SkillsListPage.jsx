@@ -31,7 +31,7 @@ const SkillsListPage = () => {
     try {
       setLoading(true);
       const response = await getAllSkills();
-      setSkills(response.data);
+      setSkills(response.data.skills || []);
     } catch (error) {
       console.error('Error fetching skills:', error);
       notification.error({

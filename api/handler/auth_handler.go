@@ -18,7 +18,7 @@ import (
 
 const (
 	refreshTokenCookie = "refresh_token"
-	accessTokenTTL     = 15 * time.Minute
+	accessTokenTTL     = 72 * time.Hour
 	refreshTokenTTL    = 7 * 24 * time.Hour
 	onboardingTTL      = 5 * time.Minute
 )
@@ -31,6 +31,7 @@ type AuthHandlerDeps struct {
 	OnboardSvc    *auth.OnboardService
 	Logger        *zap.Logger
 	CallbackURL   string
+	FrontendURL   string
 	GlobalAdmin   string
 	SecureCookies bool
 }
@@ -94,6 +95,38 @@ func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 		return
 	}
 
+	frontendURL := h.deps.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3002"
+	}
+
+	globalRole := ""
+	if h.deps.GlobalAdmin != "" && strings.EqualFold(ghUser.Login, h.deps.GlobalAdmin) {
+		globalRole = "global_admin"
+	}
+
+	// Returning user: skip onboarding and issue tokens directly.
+	githubIDStr := fmt.Sprintf("%d", ghUser.ID)
+	userID, tenantID, exists, lookupErr := h.deps.OnboardSvc.GetUserTenant(ctx, githubIDStr)
+	if lookupErr != nil {
+		h.deps.Logger.Warn("get user tenant failed, falling back to onboarding", zap.Error(lookupErr))
+	}
+	if lookupErr == nil && exists && tenantID != "" {
+		rawRT, accessJWT, err := h.issueTokenPair(ctx, userID, tenantID, "admin", globalRole, ghUser.AvatarURL, ghUser.Login)
+		if err != nil {
+			h.deps.Logger.Error("issue token pair for returning user", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "token issuance failed"})
+			return
+		}
+		h.setRefreshCookie(c, rawRT)
+		h.deps.Logger.Info("returning user login, redirecting with access_token",
+			zap.String("user_id", userID), zap.String("tenant_id", tenantID))
+		c.Redirect(http.StatusFound, frontendURL+"/auth/callback?access_token="+accessJWT)
+		return
+	}
+	h.deps.Logger.Info("new user, redirecting to onboarding",
+		zap.String("github_login", ghUser.Login), zap.Bool("exists", exists), zap.String("tenant_id", tenantID))
+
 	ob := auth.OnboardingClaims{
 		GitHubID:    ghUser.ID,
 		GitHubLogin: ghUser.Login,
@@ -106,11 +139,9 @@ func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"onboarding_token": obToken,
-		"github_login":     ghUser.Login,
-		"avatar_url":       ghUser.AvatarURL,
-	})
+	redirectURL := fmt.Sprintf("%s/auth/callback?onboarding_token=%s&github_login=%s&avatar_url=%s",
+		frontendURL, obToken, ghUser.Login, ghUser.AvatarURL)
+	c.Redirect(http.StatusFound, redirectURL)
 }
 
 // Register creates or joins a tenant using the onboarding token.
@@ -146,9 +177,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		globalRole = "global_admin"
 	}
 
-	userID := "github:" + ob.GitHubLogin
-
-	var tenantID string
+	var userID, tenantID string
 	switch req.Action {
 	case "create":
 		if req.TenantName == "" {
@@ -156,7 +185,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			return
 		}
 		result, err := h.deps.OnboardSvc.CreateTenant(ctx, auth.CreateTenantInput{
-			UserID: userID, Name: req.TenantName, GitHubOrg: req.GitHubOrg,
+			GitHubID:    ob.GitHubID,
+			GitHubLogin: ob.GitHubLogin,
+			AvatarURL:   ob.AvatarURL,
+			Name:        req.TenantName,
+			GitHubOrg:   req.GitHubOrg,
 		})
 		if err != nil {
 			h.deps.Logger.Error("create tenant", zap.Error(err))
@@ -164,6 +197,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			return
 		}
 		tenantID = result.TenantID
+		userID = result.UserUUID
 
 	case "join":
 		if req.InvitationToken == "" {
@@ -171,12 +205,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			return
 		}
 		if err := h.deps.OnboardSvc.JoinTenant(ctx, auth.JoinTenantInput{
-			UserID: userID, InvitationToken: req.InvitationToken,
+			UserID: ob.GitHubLogin, InvitationToken: req.InvitationToken,
 		}); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invitation token"})
 			return
 		}
-		// Plan 3 adds the tenant_id lookup after join.
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "join flow requires Plan 3 user DB"})
 		return
 
@@ -185,7 +218,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	rawRT, accessJWT, err := h.issueTokenPair(ctx, userID, tenantID, "admin", globalRole)
+	rawRT, accessJWT, err := h.issueTokenPair(ctx, userID, tenantID, "admin", globalRole, ob.AvatarURL, ob.GitHubLogin)
 	if err != nil {
 		h.deps.Logger.Error("issue token pair", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token issuance failed"})
@@ -218,6 +251,12 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	storedClaims, err := h.deps.TokenStore.GetActiveClaims(ctx, rawRT)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+		return
+	}
+
 	newRawRT, err := randomState()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
@@ -228,8 +267,10 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Plan 3 will load full claims from DB; stub with minimal claims for now.
-	claims := auth.TokenClaims{Sub: "stub", TenantID: "stub", Role: "member", JTI: newRawRT[:8]}
+	claims := auth.TokenClaims{
+		Sub: storedClaims.UserID, TenantID: storedClaims.TenantID, Role: "admin", JTI: newRawRT[:8],
+		AvatarURL: storedClaims.AvatarURL, GitHubLogin: storedClaims.GitHubLogin,
+	}
 	accessJWT, err := h.deps.JWTService.Sign(claims, accessTokenTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
@@ -273,14 +314,16 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"sub":         claims.Sub,
-		"tenant_id":   claims.TenantID,
-		"role":        claims.Role,
-		"global_role": claims.GlobalRole,
+		"sub":          claims.Sub,
+		"tenant_id":    claims.TenantID,
+		"role":         claims.Role,
+		"global_role":  claims.GlobalRole,
+		"avatar_url":   claims.AvatarURL,
+		"github_login": claims.GitHubLogin,
 	})
 }
 
-func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role, globalRole string) (rawRT, accessJWT string, err error) {
+func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role, globalRole, avatarURL, githubLogin string) (rawRT, accessJWT string, err error) {
 	rawRT, err = randomState()
 	if err != nil {
 		return "", "", err
@@ -291,6 +334,7 @@ func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role
 	}
 	claims := auth.TokenClaims{
 		Sub: userID, TenantID: tenantID, Role: role, GlobalRole: globalRole, JTI: jti,
+		AvatarURL: avatarURL, GitHubLogin: githubLogin,
 	}
 	accessJWT, err = h.deps.JWTService.Sign(claims, accessTokenTTL)
 	if err != nil {
@@ -304,7 +348,14 @@ func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string) {
 	if value == "" {
 		maxAge = -1
 	}
-	c.SetCookie(refreshTokenCookie, value, maxAge, "/auth/refresh", "", h.deps.SecureCookies, true)
+	// SameSite=None allows cross-origin requests (frontend on :3002, backend on :8080).
+	// Requires Secure=true in production; dev uses SecureCookies=false.
+	if h.deps.SecureCookies {
+		c.SetSameSite(http.SameSiteNoneMode)
+	} else {
+		c.SetSameSite(http.SameSiteLaxMode)
+	}
+	c.SetCookie(refreshTokenCookie, value, maxAge, "/", "", h.deps.SecureCookies, true)
 }
 
 func randomState() (string, error) {

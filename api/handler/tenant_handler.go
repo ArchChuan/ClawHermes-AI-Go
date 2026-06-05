@@ -55,7 +55,7 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 	}
 
 	rows, err := h.db.Query(c.Request.Context(),
-		`SELECT tm.user_id, COALESCE(u.email, ''), tm.role, tm.joined_at
+		`SELECT tm.user_id, u.github_login, COALESCE(u.avatar_url, ''), tm.role, tm.joined_at
 		 FROM public.tenant_members tm
 		 JOIN public.users u ON u.id = tm.user_id
 		 WHERE tm.tenant_id=$1
@@ -71,7 +71,7 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 	members := make([]model.MemberResponse, 0)
 	for rows.Next() {
 		var m model.MemberResponse
-		if err := rows.Scan(&m.UserID, &m.Email, &m.Role, &m.JoinedAt); err != nil {
+		if err := rows.Scan(&m.UserID, &m.GitHubLogin, &m.AvatarURL, &m.Role, &m.JoinedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "scan error"})
 			return
 		}

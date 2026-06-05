@@ -38,7 +38,7 @@ const CreateAgentPage = () => {
   const loadSkills = async () => {
     try {
       const response = await getAllSkills();
-      setSkills(response.data);
+      setSkills(response.data.skills || []);
     } catch (error) {
       console.error('Error loading skills:', error);
       notification.error({

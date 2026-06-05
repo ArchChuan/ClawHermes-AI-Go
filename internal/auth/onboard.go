@@ -3,6 +3,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -12,15 +13,18 @@ import (
 
 // CreateTenantInput holds the fields needed to create a new tenant.
 type CreateTenantInput struct {
-	UserID    string
-	Name      string
-	GitHubOrg string
+	GitHubID    int64
+	GitHubLogin string
+	AvatarURL   string
+	Name        string
+	GitHubOrg   string
 }
 
 // CreateTenantResult is returned on successful tenant creation.
 type CreateTenantResult struct {
 	TenantID   string
 	SchemaName string
+	UserUUID   string
 }
 
 // JoinTenantInput holds the fields needed to join an existing tenant via invitation.
@@ -40,9 +44,10 @@ func NewOnboardService(db *pgxpool.Pool) *OnboardService {
 }
 
 // CreateTenant runs a transaction that:
-//  1. Inserts a new row in `tenants`
-//  2. Inserts the creator as `admin` in `tenant_members`
-//  3. Executes `CREATE SCHEMA tenant_{id}`
+//  1. Upserts the GitHub user into `users`, returning their UUID
+//  2. Inserts a new row in `tenants`
+//  3. Inserts the creator as `admin` in `tenant_members`
+//  4. Executes `CREATE SCHEMA tenant_{id}`
 func (s *OnboardService) CreateTenant(ctx context.Context, in CreateTenantInput) (*CreateTenantResult, error) {
 	tenantID := uuid.New().String()
 	schemaName := "tenant_" + tenantID
@@ -52,6 +57,22 @@ func (s *OnboardService) CreateTenant(ctx context.Context, in CreateTenantInput)
 		return nil, fmt.Errorf("onboard: begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// upsert user, get UUID
+	var userUUID string
+	err = tx.QueryRow(ctx,
+		`INSERT INTO users (github_id, github_login, avatar_url)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (github_id) DO UPDATE
+		   SET github_login = EXCLUDED.github_login,
+		       avatar_url   = EXCLUDED.avatar_url,
+		       last_login_at = now()
+		 RETURNING id`,
+		fmt.Sprintf("%d", in.GitHubID), in.GitHubLogin, in.AvatarURL,
+	).Scan(&userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("onboard: upsert user: %w", err)
+	}
 
 	slug := in.GitHubOrg
 	if slug == "" {
@@ -68,7 +89,7 @@ func (s *OnboardService) CreateTenant(ctx context.Context, in CreateTenantInput)
 
 	_, err = tx.Exec(ctx,
 		`INSERT INTO tenant_members (tenant_id, user_id, role) VALUES ($1, $2, 'admin')`,
-		tenantID, in.UserID,
+		tenantID, userUUID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("onboard: insert tenant_member: %w", err)
@@ -84,7 +105,29 @@ func (s *OnboardService) CreateTenant(ctx context.Context, in CreateTenantInput)
 		return nil, fmt.Errorf("onboard: commit: %w", err)
 	}
 
-	return &CreateTenantResult{TenantID: tenantID, SchemaName: schemaName}, nil
+	return &CreateTenantResult{TenantID: tenantID, SchemaName: schemaName, UserUUID: userUUID}, nil
+}
+
+// GetUserTenant looks up an existing user by GitHub ID and returns their UUID and
+// first active tenant. Returns found=false if the user does not exist or has no
+// tenant membership.
+func (s *OnboardService) GetUserTenant(ctx context.Context, githubID string) (userID, tenantID string, found bool, err error) {
+	var uid, tid string
+	err = s.db.QueryRow(ctx,
+		`SELECT u.id, COALESCE(tm.tenant_id::text, '')
+		 FROM users u
+		 LEFT JOIN tenant_members tm ON tm.user_id = u.id
+		 WHERE u.github_id = $1
+		 LIMIT 1`,
+		githubID,
+	).Scan(&uid, &tid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", false, nil
+		}
+		return "", "", false, fmt.Errorf("onboard: get user tenant: %w", err)
+	}
+	return uid, tid, true, nil
 }
 
 // JoinTenant validates an invitation token and inserts the user into the tenant.
