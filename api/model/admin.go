@@ -59,10 +59,11 @@ type UpdateMemberRoleRequest struct {
 
 // MemberResponse represents a single tenant member.
 type MemberResponse struct {
-	UserID   string    `json:"user_id"`
-	Email    string    `json:"email"`
-	Role     string    `json:"role"`
-	JoinedAt time.Time `json:"joined_at"`
+	UserID      string    `json:"user_id"`
+	GitHubLogin string    `json:"github_login"`
+	AvatarURL   string    `json:"avatar_url"`
+	Role        string    `json:"role"`
+	JoinedAt    time.Time `json:"joined_at"`
 }
 
 // ListMembersResponse wraps paginated member results.
@@ -80,6 +81,7 @@ type UpdateSettingsRequest struct {
 
 // SettingsResponse wraps the current settings JSONB.
 type SettingsResponse struct {
-	TenantID string                 `json:"tenant_id"`
-	Settings map[string]interface{} `json:"settings"`
+	TenantID   string                 `json:"tenant_id"`
+	TenantName string                 `json:"tenant_name"`
+	Settings   map[string]interface{} `json:"settings"`
 }

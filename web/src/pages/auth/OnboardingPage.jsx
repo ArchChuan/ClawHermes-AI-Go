@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Tabs, Form, Input, Button, Card, Typography, message, Space } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { createTenant, joinTenant, getMe } from '../../services/api';
+import { postRegister, getMe } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 
 const { Title, Text } = Typography;
@@ -12,33 +12,74 @@ const OnboardingPage = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
 
-  const refreshAndRedirect = async () => {
-    const res = await getMe();
-    login(res.data.user, res.data.access_token);
+  const getOnboardingToken = () => {
+    const token = sessionStorage.getItem('onboarding_token');
+    if (!token) {
+      message.error('登录已过期，请重新登录');
+      navigate('/login', { replace: true });
+    }
+    return token;
+  };
+
+  const finishLogin = async (access_token, tenant_id) => {
+    sessionStorage.removeItem('onboarding_token');
+    sessionStorage.removeItem('github_login');
+    sessionStorage.removeItem('avatar_url');
+    // Set token first so the /auth/me request carries the Authorization header.
+    login({ tenant_id, current_tenant: { id: tenant_id } }, access_token);
+    try {
+      const meRes = await getMe();
+      login(
+        {
+          sub: meRes.data.sub,
+          tenant_id: meRes.data.tenant_id,
+          role: meRes.data.role,
+          global_role: meRes.data.global_role,
+          current_tenant: { id: meRes.data.tenant_id },
+          avatar_url: meRes.data.avatar_url || '',
+          github_login: meRes.data.github_login || '',
+        },
+        access_token,
+      );
+    } catch {
+      // /auth/me failed but we have a valid access_token; navigate anyway.
+    }
     navigate('/', { replace: true });
   };
 
   const handleCreate = async (values) => {
+    const onboardingToken = getOnboardingToken();
+    if (!onboardingToken) return;
     setCreateLoading(true);
     try {
-      await createTenant({ name: values.name, slug: values.slug });
+      const res = await postRegister({
+        onboarding_token: onboardingToken,
+        action: 'create',
+        tenant_name: values.name,
+      });
       message.success('租户创建成功！');
-      await refreshAndRedirect();
+      await finishLogin(res.data.access_token, res.data.tenant_id);
     } catch (err) {
-      message.error(err.response?.data?.message || '创建失败');
+      message.error(err.response?.data?.error || '创建失败');
     } finally {
       setCreateLoading(false);
     }
   };
 
   const handleJoin = async (values) => {
+    const onboardingToken = getOnboardingToken();
+    if (!onboardingToken) return;
     setJoinLoading(true);
     try {
-      await joinTenant(values.invite_code);
+      const res = await postRegister({
+        onboarding_token: onboardingToken,
+        action: 'join',
+        invitation_token: values.invite_code,
+      });
       message.success('加入成功！');
-      await refreshAndRedirect();
+      await finishLogin(res.data.access_token, res.data.tenant_id);
     } catch (err) {
-      message.error(err.response?.data?.message || '加入失败，邀请码无效或已过期');
+      message.error(err.response?.data?.error || '加入失败，邀请码无效或已过期');
     } finally {
       setJoinLoading(false);
     }
@@ -52,12 +93,6 @@ const OnboardingPage = () => {
         <Form layout="vertical" onFinish={handleCreate}>
           <Form.Item label="租户名称" name="name" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input placeholder="例如：我的团队" maxLength={64} />
-          </Form.Item>
-          <Form.Item label="Slug（URL 标识）" name="slug" rules={[
-            { required: true, message: '请输入 slug' },
-            { pattern: /^[a-z0-9-]+$/, message: '只允许小写字母、数字和连字符' },
-          ]}>
-            <Input placeholder="例如：my-team" maxLength={32} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block loading={createLoading}>创建租户</Button>

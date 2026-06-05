@@ -99,6 +99,37 @@ func (s *TokenStore) Revoke(ctx context.Context, rawToken string) error {
 	return nil
 }
 
+// StoredClaims holds the user/tenant info persisted with a refresh token.
+type StoredClaims struct {
+	UserID      string
+	TenantID    string
+	AvatarURL   string
+	GitHubLogin string
+}
+
+// GetActiveClaims returns the user/tenant claims for a non-revoked, non-expired token.
+func (s *TokenStore) GetActiveClaims(ctx context.Context, rawToken string) (*StoredClaims, error) {
+	hash := hashToken(rawToken)
+	var userID string
+	var tenantID *string
+	var avatarURL, githubLogin string
+	err := s.db.QueryRow(ctx,
+		`SELECT rt.user_id, rt.tenant_id, COALESCE(u.avatar_url, ''), u.github_login
+		 FROM refresh_tokens rt
+		 JOIN users u ON u.id = rt.user_id
+		 WHERE rt.token_hash = $1 AND rt.revoked_at IS NULL AND rt.expires_at > NOW()`,
+		hash,
+	).Scan(&userID, &tenantID, &avatarURL, &githubLogin)
+	if err != nil {
+		return nil, fmt.Errorf("token_store: get active claims: %w", err)
+	}
+	tid := ""
+	if tenantID != nil {
+		tid = *tenantID
+	}
+	return &StoredClaims{UserID: userID, TenantID: tid, AvatarURL: avatarURL, GitHubLogin: githubLogin}, nil
+}
+
 // IsBlacklisted checks the Redis blacklist for a given raw token.
 func (s *TokenStore) IsBlacklisted(ctx context.Context, rawToken string) (bool, error) {
 	hash := hashToken(rawToken)

@@ -25,6 +25,7 @@ bin/
 dist/
 build/
 main
+server
 
 # Environment variables
 .env

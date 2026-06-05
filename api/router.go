@@ -51,15 +51,17 @@ func SetupRouter(
 
 	// Middleware
 	router.Use(middleware.ErrorHandler(logger))
+	router.Use(middleware.CORSMiddleware(cfg.FrontendURL))
 	router.Use(middleware.MetricsMiddleware(metrics))
 
 	// Auth setup — only if GitHub OAuth is configured
+	var jwtSvc *auth.JWTService
 	if cfg.GitHubClientID != "" {
 		rsaKey, err := parseRSAPrivateKey(cfg.JWTPrivateKeyPEM)
 		if err != nil {
 			logger.Warn("JWT private key parse failed, auth routes disabled", zap.Error(err))
 		} else {
-			jwtSvc := auth.NewJWTService(rsaKey)
+			jwtSvc = auth.NewJWTService(rsaKey)
 			ghClient := auth.NewGitHubClient(cfg.GitHubClientID, cfg.GitHubClientSecret, "", "")
 			tokenStore := auth.NewTokenStore(db, rdb)
 			onboardSvc := auth.NewOnboardService(db)
@@ -69,7 +71,8 @@ func SetupRouter(
 				TokenStore:    tokenStore,
 				OnboardSvc:    onboardSvc,
 				Logger:        logger,
-				CallbackURL:   "http://localhost:" + cfg.Port + "/auth/github/callback",
+				CallbackURL:   cfg.GitHubCallbackURL,
+				FrontendURL:   cfg.FrontendURL,
 				GlobalAdmin:   cfg.GlobalAdminGitHubLogin,
 				SecureCookies: cfg.SecureCookies,
 			})
@@ -98,7 +101,7 @@ func SetupRouter(
 					adminGroup.DELETE("/tenants/:id", adminHandler.DeleteTenant)
 				}
 
-				tenantGroup := router.Group("/tenant", jwtMW, middleware.RequireTenantRole("member"))
+				tenantGroup := router.Group("/tenant", jwtMW, middleware.InjectTenantContext(), middleware.RequireTenantRole("member"))
 				{
 					tenantGroup.GET("/members", tenantHandler.ListMembers)
 					tenantGroup.POST("/members/invite", tenantHandler.InviteMember)
@@ -172,7 +175,11 @@ func SetupRouter(
 	}
 
 	// Agent endpoints
-	agents := router.Group("/agents")
+	var agentMiddlewares []gin.HandlerFunc
+	if jwtSvc != nil {
+		agentMiddlewares = append(agentMiddlewares, auth.JWTMiddleware(jwtSvc), middleware.InjectTenantContext())
+	}
+	agents := router.Group("/agents", agentMiddlewares...)
 	{
 		agents.GET("", agentHandler.GetAllAgents)
 		agents.POST("", agentHandler.CreateAgent)
@@ -189,7 +196,11 @@ func SetupRouter(
 	}
 
 	// Memory endpoints
-	mem := router.Group("/memory")
+	var memMiddlewares []gin.HandlerFunc
+	if jwtSvc != nil {
+		memMiddlewares = append(memMiddlewares, auth.JWTMiddleware(jwtSvc), middleware.InjectTenantContext())
+	}
+	mem := router.Group("/memory", memMiddlewares...)
 	{
 		mem.POST("/sessions", memoryHandler.CreateSession)
 		mem.POST("", memoryHandler.AddMemory)

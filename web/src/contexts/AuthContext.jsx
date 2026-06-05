@@ -14,12 +14,58 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(token);
   };
 
+  const buildUser = (meData, tenantName) => ({
+    sub: meData.sub,
+    tenant_id: meData.tenant_id,
+    role: meData.role,
+    global_role: meData.global_role,
+    current_tenant: meData.tenant_id ? { id: meData.tenant_id, name: tenantName || meData.tenant_id } : null,
+    avatar_url: meData.avatar_url || '',
+    github_login: meData.github_login || '',
+  });
+
+  const fetchTenantName = async (token) => {
+    try {
+      const res = await api.get('/tenant/settings', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        _retry: true,
+      });
+      return res.data.tenant_name || '';
+    } catch {
+      return '';
+    }
+  };
+
   useEffect(() => {
     const restoreSession = async () => {
+      const savedToken = localStorage.getItem('access_token');
+
+      if (savedToken) {
+        try {
+          const [meRes, tenantName] = await Promise.all([
+            api.get('/auth/me', { headers: { Authorization: `Bearer ${savedToken}` }, _retry: true }),
+            fetchTenantName(savedToken),
+          ]);
+          updateToken(savedToken);
+          setUser(buildUser(meRes.data, tenantName));
+          setLoading(false);
+          return;
+        } catch {
+          localStorage.removeItem('access_token');
+        }
+      }
+
       try {
-        const res = await api.get('/auth/me');
-        setUser(res.data.user);
-        updateToken(res.data.access_token);
+        const refreshRes = await api.post('/auth/refresh');
+        const token = refreshRes.data.access_token;
+        updateToken(token);
+        localStorage.setItem('access_token', token);
+
+        const [meRes, tenantName] = await Promise.all([
+          api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` }, _retry: true }),
+          fetchTenantName(token),
+        ]);
+        setUser(buildUser(meRes.data, tenantName));
       } catch {
         setUser(null);
         updateToken(null);
@@ -28,11 +74,14 @@ export const AuthProvider = ({ children }) => {
       }
     };
     restoreSession();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = (userData, token) => {
     setUser(userData);
     updateToken(token);
+    if (token) {
+      localStorage.setItem('access_token', token);
+    }
   };
 
   const logout = async () => {
@@ -41,6 +90,7 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // ignore, force local cleanup
     }
+    localStorage.removeItem('access_token');
     setUser(null);
     updateToken(null);
   };

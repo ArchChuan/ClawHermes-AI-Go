@@ -93,6 +93,12 @@ const AppInner = () => {
           <Space>
             <span>状态:</span>
             <span style={{ color: connected ? 'green' : 'red' }}>{connected ? '已连接' : '未连接'}</span>
+            {user?.current_tenant?.name && (
+              <>
+                <span style={{ color: '#bbb' }}>|</span>
+                <span style={{ color: '#1677ff', fontWeight: 500 }}>{user.current_tenant.name}</span>
+              </>
+            )}
           </Space>
           {user ? (
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">

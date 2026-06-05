@@ -3,11 +3,10 @@ import { Button, Card, Typography, Space } from 'antd';
 import { GithubOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
 const LoginPage = () => {
   const handleGithubLogin = () => {
-    window.location.href = `${API_BASE}/auth/github`;
+    window.location.href = '/auth/github';
   };
 
   return (

@@ -11,11 +11,13 @@ import (
 
 // TokenClaims is the payload for access JWTs.
 type TokenClaims struct {
-	Sub        string
-	TenantID   string
-	Role       string
-	GlobalRole string
-	JTI        string
+	Sub         string
+	TenantID    string
+	Role        string
+	GlobalRole  string
+	JTI         string
+	AvatarURL   string
+	GitHubLogin string
 }
 
 // OnboardingClaims is the payload for short-lived onboarding JWTs (no tenant yet).
@@ -26,9 +28,11 @@ type OnboardingClaims struct {
 }
 
 type jwtAccessClaims struct {
-	TenantID   string `json:"tid,omitempty"`
-	Role       string `json:"role,omitempty"`
-	GlobalRole string `json:"global_role,omitempty"`
+	TenantID    string `json:"tid,omitempty"`
+	Role        string `json:"role,omitempty"`
+	GlobalRole  string `json:"global_role,omitempty"`
+	AvatarURL   string `json:"ava,omitempty"`
+	GitHubLogin string `json:"ghl,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -54,9 +58,11 @@ func NewJWTService(key *rsa.PrivateKey) *JWTService {
 func (s *JWTService) Sign(c TokenClaims, ttl time.Duration) (string, error) {
 	now := time.Now().UTC()
 	claims := jwtAccessClaims{
-		TenantID:   c.TenantID,
-		Role:       c.Role,
-		GlobalRole: c.GlobalRole,
+		TenantID:    c.TenantID,
+		Role:        c.Role,
+		GlobalRole:  c.GlobalRole,
+		AvatarURL:   c.AvatarURL,
+		GitHubLogin: c.GitHubLogin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   c.Sub,
 			ID:        c.JTI,
@@ -88,11 +94,13 @@ func (s *JWTService) Verify(tokenStr string) (*TokenClaims, error) {
 		return nil, fmt.Errorf("jwt: invalid claims")
 	}
 	return &TokenClaims{
-		Sub:        c.Subject,
-		TenantID:   c.TenantID,
-		Role:       c.Role,
-		GlobalRole: c.GlobalRole,
-		JTI:        c.ID,
+		Sub:         c.Subject,
+		TenantID:    c.TenantID,
+		Role:        c.Role,
+		GlobalRole:  c.GlobalRole,
+		JTI:         c.ID,
+		AvatarURL:   c.AvatarURL,
+		GitHubLogin: c.GitHubLogin,
 	}, nil
 }
 

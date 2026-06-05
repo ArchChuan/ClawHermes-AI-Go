@@ -1,21 +1,37 @@
 import axios from 'axios';
 
+// Dev: Vite proxy forwards /auth /health /skills etc. to :8080, same-origin so cookies work.
+// Prod: set VITE_API_BASE_URL to backend origin, or leave empty when co-hosted.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 10000,
   withCredentials: true,
 });
 
 let _tokenRef = { current: null };
+let _reqInterceptor = null;
+let _resInterceptor = null;
 
 export const setupApiInterceptors = (tokenRef, onLogout) => {
   _tokenRef = tokenRef;
 
-  api.interceptors.request.use(
+  if (_reqInterceptor !== null) {
+    api.interceptors.request.eject(_reqInterceptor);
+  }
+  if (_resInterceptor !== null) {
+    api.interceptors.response.eject(_resInterceptor);
+  }
+
+  _reqInterceptor = api.interceptors.request.use(
     (config) => {
-      const token = _tokenRef.current;
-      if (token) {
-        config.headers['Authorization'] = `Bearer ${token}`;
+      const hasAuth = config.headers.get
+        ? config.headers.get('Authorization')
+        : config.headers['Authorization'];
+      if (!hasAuth) {
+        const token = _tokenRef.current || localStorage.getItem('access_token');
+        if (token) {
+          config.headers['Authorization'] = `Bearer ${token}`;
+        }
       }
       return config;
     },
@@ -30,17 +46,23 @@ export const setupApiInterceptors = (tokenRef, onLogout) => {
     pendingQueue = [];
   };
 
-  api.interceptors.response.use(
+  _resInterceptor = api.interceptors.response.use(
     (response) => response,
     async (error) => {
       const originalRequest = error.config;
 
-      if (error.response?.status === 401 && !originalRequest._retry) {
+      if (
+        error.response?.status === 401 &&
+        !originalRequest._retry &&
+        !originalRequest.url?.includes('/auth/refresh')
+      ) {
         if (isRefreshing) {
           return new Promise((resolve, reject) => {
             pendingQueue.push({ resolve, reject });
-          }).then((token) => {
-            originalRequest.headers['Authorization'] = `Bearer ${token}`;
+          }).then(() => {
+            originalRequest.headers.set
+              ? originalRequest.headers.set('Authorization', null)
+              : delete originalRequest.headers['Authorization'];
             return api(originalRequest);
           });
         }
@@ -52,11 +74,15 @@ export const setupApiInterceptors = (tokenRef, onLogout) => {
           const res = await api.post('/auth/refresh');
           const newToken = res.data.access_token;
           _tokenRef.current = newToken;
+          localStorage.setItem('access_token', newToken);
           processQueue(null, newToken);
-          originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+          originalRequest.headers.set
+            ? originalRequest.headers.set('Authorization', null)
+            : delete originalRequest.headers['Authorization'];
           return api(originalRequest);
         } catch (refreshError) {
           processQueue(refreshError, null);
+          localStorage.removeItem('access_token');
           onLogout?.();
           return Promise.reject(refreshError);
         } finally {
@@ -74,16 +100,19 @@ export const checkHealth = () => api.get('/health');
 
 // Auth
 export const getMe = () => api.get('/auth/me');
+export const postRegister = (data) => api.post('/auth/register', data);
 export const postLogout = () => api.post('/auth/logout');
 export const postRefresh = () => api.post('/auth/refresh');
 
 // Tenant
-export const createTenant = (data) => api.post('/tenants', data);
-export const joinTenant = (inviteCode) => api.post('/tenants/join', { invite_code: inviteCode });
+export const createTenant = (data) => api.post('/admin/tenants', data);
+export const joinTenant = (onboardingToken, inviteCode) =>
+  api.post('/auth/register', { onboarding_token: onboardingToken, action: 'join', invitation_token: inviteCode });
 export const getTenantMembers = () => api.get('/tenant/members');
 export const inviteMember = (data) => api.post('/tenant/members/invite', data);
+export const updateMemberRole = (userId, role) => api.patch(`/tenant/members/${userId}/role`, { role });
 export const removeMember = (userId) => api.delete(`/tenant/members/${userId}`);
-export const updateTenant = (data) => api.put('/tenant/settings', data);
+export const updateTenant = (data) => api.patch('/tenant/settings', data);
 export const getAllTenants = () => api.get('/admin/tenants');
 export const setTenantEnabled = (tenantId, enabled) => api.patch(`/admin/tenants/${tenantId}`, { enabled });
 
@@ -99,6 +128,7 @@ export const getAllAgents = () => api.get('/agents');
 export const getAgentById = (id) => api.get(`/agents/${id}`);
 export const createAgent = (data) => api.post('/agents', data);
 export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task);
+export const deleteAgent = (id) => api.delete(`/agents/${id}`);
 
 // Memory
 export const createSession = (data) => api.post('/memory/sessions', data);
