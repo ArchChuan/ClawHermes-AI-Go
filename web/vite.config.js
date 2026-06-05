@@ -22,11 +22,16 @@ export default defineConfig(({ command, mode }) => {
       port: parseInt(env.VITE_PORT || '3002'),
       open: mode === 'development' && !env.CI,
       proxy: {
-        '/api': {
-          target: apiTarget,
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/api/, ''),
-        },
+        // /auth/callback is a frontend React route — must NOT be proxied to backend.
+        // Match only the backend auth API endpoints explicitly.
+        '^/auth/(github|register|refresh|logout|me)': { target: apiTarget, changeOrigin: true, cookieDomainRewrite: { '*': '' } },
+        '/health': { target: apiTarget, changeOrigin: true },
+        '/skills': { target: apiTarget, changeOrigin: true, bypass: (req) => req.headers.accept?.includes('text/html') ? '/index.html' : undefined },
+        '/agents': { target: apiTarget, changeOrigin: true, bypass: (req) => req.headers.accept?.includes('text/html') ? '/index.html' : undefined },
+        '/memory': { target: apiTarget, changeOrigin: true, bypass: (req) => req.headers.accept?.includes('text/html') ? '/index.html' : undefined },
+        '/tenant': { target: apiTarget, changeOrigin: true, bypass: (req) => req.headers.accept?.includes('text/html') ? '/index.html' : undefined },
+        '/admin': { target: apiTarget, changeOrigin: true, bypass: (req) => req.headers.accept?.includes('text/html') ? '/index.html' : undefined },
+        '/metrics': { target: apiTarget, changeOrigin: true },
       },
     },
 

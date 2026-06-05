@@ -28,39 +28,48 @@
 
 ## Go Standards
 
-- Go idioms + goroutine-safe + Zap only (no fmt.Print)
-- Single responsibility; line ≤120 chars; imports: stdlib → third-party → internal
-- All public functions documented; cyclomatic complexity ≤10
+**Style**: Go idioms · goroutine-safe · single responsibility · line ≤120 chars · imports: stdlib → third-party → internal · cyclomatic complexity ≤10 · all public symbols documented.
 
-## Validation
+**Logging**: Zap only (no `fmt.Print`). Structured fields: `request_id / user_id / tenant_id / operation`. Never log passwords/tokens/PII.
+
+**Error handling**: `fmt.Errorf("operation: %w", err)` — always wrap with context. Transient errors: exponential backoff (base 100ms, max 10s). External deps: circuit breaker pattern.
+
+**Security**: Secrets in Vault/AWS Secrets Manager — never in git. TLS 1.2+ in transit, AES-256 at rest. Pre-commit: git-secrets/GitGuardian. Never modify `config/prod.yaml` or `internal/auth/*`.
+
+**Testing**: Coverage ≥80% on logic paths. Table-driven tests. Mock all external deps. Race detector on full suite.
 
 ```bash
-go vet && go test -short ./...       # after every change
-go test -v -race -timeout 30s ./...  # full suite
+go vet && go test -short ./...          # after every change
+go test -v -race -timeout 30s ./...     # full suite before PR
 ```
 
-- Never modify: `config/prod.yaml`, `internal/auth/*`
-- Coverage ≥80% logic; table-driven tests; mock external deps
+**PR format**: `[type](scope): description` — feat/fix/refactor/perf/test/docs/chore/ci. Include What/Why/HowToTest. CI (lint/test/scan) must pass.
 
-## PR Format
+---
 
-`[type](scope): description` — feat/fix/refactor/perf/test/docs/chore/ci
-Include What/Why/HowToTest. Pass CI (lint/test/scan). Min 4h review.
+## Frontend Standards (`web/`)
 
-## Logging
+Stack: React 18 · Vite 4 · Ant Design 5 · React Router 6 · Axios
 
-- Zap structured (DEBUG/INFO/WARN/ERROR/FATAL)
-- Context fields: request_id/user_id/tenant_id/operation/timestamp
-- Never log passwords/tokens/PII/API keys
+**Structure**: `components/` shared UI · `hooks/` custom hooks (`use*`) · `pages/` route components · `services/` API layer · `utils/` pure helpers · `contexts/` React Context. No cross-`pages/` imports.
 
-## Security
+**Components**: One component per file, PascalCase. Pages named `*Page.jsx`. Max 200 lines — extract to hooks/utils. No business logic in JSX. All user-visible strings in Chinese.
 
-- Secrets in Vault or AWS Secrets Manager (never git)
-- Monthly key rotation; least privilege; audit secret access
-- TLS 1.2+ transit, AES-256 at-rest; pre-commit: git-secrets/GitGuardian
+**State**: `useState` for local UI; Context for cross-component. No Redux/Zustand without approval. `useEffect` deps must be complete; async effects need cleanup (`let cancelled = false` pattern).
 
-## Error Handling
+**API**: All calls via central axios instance in `services/api.js` — no raw `fetch`. Interceptor handles 401/403. Surface errors with `message.error(err.response?.data?.error || '操作失败')`. No `console.log` in committed code.
 
-- `fmt.Errorf("operation: %w", err)` — always wrap with context
-- Transient: exponential backoff (base 100ms, max 10s)
-- External deps: circuit breaker; custom error types (no plain strings)
+**Routing**: All routes in `App.jsx`. Protected routes use `<PrivateRoute>`. SPA refresh: Vite proxy uses `bypass` → `/index.html` for `text/html`; Nginx uses `try_files $uri /index.html`.
+
+**Ant Design**: AntD components first. No `!important` overrides. Use `message`/`Modal.confirm` — no `alert()`/`confirm()`. Forms via `Form.Item` rules.
+
+**Security**: No tokens in `localStorage` — use `httpOnly` cookies or in-memory Context. No secrets in `.env` committed to git.
+
+**Validation**:
+
+```bash
+npm run lint   # zero warnings
+npm run build  # must succeed before PR
+```
+
+**PR gate**: lint passes · build succeeds · new routes in `App.jsx` with `<PrivateRoute>` · no raw `fetch` · tested in browser including page refresh.
