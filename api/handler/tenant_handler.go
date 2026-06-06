@@ -227,22 +227,36 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: err.Error()})
 		return
 	}
-	settingsJSON, err := json.Marshal(req.Settings)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: "invalid settings"})
-		return
+
+	if req.Name != "" {
+		tag, err := h.db.Exec(c.Request.Context(),
+			"UPDATE public.tenants SET name=$1, updated_at=now() WHERE id=$2 AND deleted_at IS NULL",
+			req.Name, tenantID)
+		if err != nil {
+			h.logger.Error("update tenant name failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "update failed"})
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Code: 404, Message: "tenant not found"})
+			return
+		}
 	}
-	tag, err := h.db.Exec(c.Request.Context(),
-		"UPDATE public.tenants SET settings=$1 WHERE id=$2 AND deleted_at IS NULL",
-		settingsJSON, tenantID)
-	if err != nil {
-		h.logger.Error("update settings failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "update failed"})
-		return
+
+	if req.Settings != nil {
+		settingsJSON, err := json.Marshal(req.Settings)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, model.ErrorResponse{Code: 400, Message: "invalid settings"})
+			return
+		}
+		if _, err := h.db.Exec(c.Request.Context(),
+			"UPDATE public.tenants SET settings=$1, updated_at=now() WHERE id=$2 AND deleted_at IS NULL",
+			settingsJSON, tenantID); err != nil {
+			h.logger.Error("update settings failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Code: 500, Message: "update failed"})
+			return
+		}
 	}
-	if tag.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, model.ErrorResponse{Code: 404, Message: "tenant not found"})
-		return
-	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "settings updated"})
 }

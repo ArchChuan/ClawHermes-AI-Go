@@ -76,7 +76,8 @@ type ListMembersResponse struct {
 
 // UpdateSettingsRequest is the body for PATCH /tenant/settings.
 type UpdateSettingsRequest struct {
-	Settings map[string]interface{} `json:"settings" binding:"required"`
+	Name     string                 `json:"name"`
+	Settings map[string]interface{} `json:"settings"`
 }
 
 // SettingsResponse wraps the current settings JSONB.
