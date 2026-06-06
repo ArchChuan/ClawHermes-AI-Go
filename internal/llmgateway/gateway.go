@@ -154,9 +154,9 @@ func (g *Gateway) Health(ctx context.Context) error {
 
 func (g *Gateway) parseProvider(model string) ModelProvider {
 	switch {
-	case strings.HasPrefix(model, "qwen"):
+	case strings.HasPrefix(model, "text-embedding-v3"), strings.HasPrefix(model, "qwen-"):
 		return ProviderQwen
-	case strings.HasPrefix(model, "glm"), strings.HasPrefix(model, "zhipu"), strings.HasPrefix(model, "embedding-"):
+	case strings.HasPrefix(model, "embedding-3"), strings.HasPrefix(model, "glm-"):
 		return ProviderZhipu
 	default:
 		return g.defaultProvider
