@@ -114,7 +114,10 @@ export const updateMemberRole = (userId, role) => api.patch(`/tenant/members/${u
 export const removeMember = (userId) => api.delete(`/tenant/members/${userId}`);
 export const updateTenant = (data) => api.patch('/tenant/settings', data);
 export const getAllTenants = () => api.get('/admin/tenants');
-export const setTenantEnabled = (tenantId, enabled) => api.patch(`/admin/tenants/${tenantId}`, { enabled });
+export const setTenantEnabled = (tenantId, enabled) => api.patch(`/admin/tenants/${tenantId}`, { status: enabled ? 'active' : 'suspended' });
+export const getTenantList = () => api.get('/tenant/list');
+export const switchTenant = (tenantId) => api.post('/auth/switch-tenant', { tenant_id: tenantId });
+export const createUserTenant = (name) => api.post('/auth/create-tenant', { tenant_name: name });
 
 // Skills
 export const getAllSkills = () => api.get('/skills');
@@ -129,6 +132,7 @@ export const getAgentById = (id) => api.get(`/agents/${id}`);
 export const createAgent = (data) => api.post('/agents', data);
 export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task);
 export const deleteAgent = (id) => api.delete(`/agents/${id}`);
+export const getAgentExecutions = () => api.get('/agents/executions');
 
 // Memory
 export const createSession = (data) => api.post('/memory/sessions', data);
@@ -141,5 +145,12 @@ export const clearSession = (sessionId, params) => api.delete(`/memory/session/$
 export const getMemoryEntities = (params) => api.get('/memory/entities', { params });
 export const extractEntities = (data) => api.post('/memory/extract-entities', data);
 export const getMemorySummary = (sessionId, params) => api.get(`/memory/summary/${sessionId}`, { params });
+
+// MCP
+export const getMCPServers = () => api.get('/api/v1/mcp/servers');
+export const connectMCPServer = (data) => api.post('/api/v1/mcp/servers', data);
+export const disconnectMCPServer = (id) => api.delete(`/api/v1/mcp/servers/${id}`);
+export const getMCPServerTools = (id) => api.get(`/api/v1/mcp/servers/${id}/tools`);
+export const getMCPServerResources = (id) => api.get(`/api/v1/mcp/servers/${id}/resources`);
 
 export default api;
