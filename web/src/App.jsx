@@ -3,7 +3,7 @@ import { Layout, Menu, Space, Typography, Dropdown, Avatar, message, Modal, Form
 import {
   AppstoreOutlined, PlusCircleOutlined, HistoryOutlined, DashboardOutlined,
   RobotOutlined, CommentOutlined, DatabaseOutlined, UserOutlined, LogoutOutlined,
-  TeamOutlined, SettingOutlined, GlobalOutlined, SwapOutlined, ApiOutlined,
+  TeamOutlined, SettingOutlined, GlobalOutlined, SwapOutlined, ApiOutlined, BookOutlined,
 } from '@ant-design/icons';
 import { Routes, Route, useNavigate, Link, useLocation } from 'react-router-dom';
 
@@ -22,6 +22,8 @@ import OnboardingPage from './pages/auth/OnboardingPage';
 import MembersPage from './pages/tenant/MembersPage';
 import SettingsPage from './pages/tenant/SettingsPage';
 import TenantsListPage from './pages/admin/TenantsListPage';
+import KnowledgePage from './pages/KnowledgePage';
+import KnowledgeDetailPage from './pages/KnowledgeDetailPage';
 import PrivateRoute from './components/PrivateRoute';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
@@ -119,6 +121,7 @@ const AppInner = () => {
     { key: '/chat', icon: <CommentOutlined />, label: <Link to="/chat">代理对话</Link> },
     { key: '/memory', icon: <DatabaseOutlined />, label: <Link to="/memory">记忆管理</Link> },
     { key: '/mcp', icon: <ApiOutlined />, label: <Link to="/mcp">MCP 服务器</Link> },
+    { key: '/knowledge', icon: <BookOutlined />, label: <Link to="/knowledge">知识库</Link> },
     { key: '/history', icon: <HistoryOutlined />, label: <Link to="/history">执行历史</Link> },
     ...(user?.current_tenant ? [{ key: '/tenant/members', icon: <TeamOutlined />, label: <Link to="/tenant/members">成员管理</Link> }] : []),
     ...(user?.global_role === 'global_admin' ? [{ key: '/admin/tenants', icon: <GlobalOutlined />, label: <Link to="/admin/tenants">全局租户</Link> }] : []),
@@ -182,6 +185,8 @@ const AppInner = () => {
               <Route path="/chat" element={<PrivateRoute><AgentChatPage /></PrivateRoute>} />
               <Route path="/memory" element={<PrivateRoute><MemoryPage /></PrivateRoute>} />
               <Route path="/mcp" element={<PrivateRoute><MCPServersPage /></PrivateRoute>} />
+              <Route path="/knowledge" element={<PrivateRoute><KnowledgePage /></PrivateRoute>} />
+              <Route path="/knowledge/:name" element={<PrivateRoute><KnowledgeDetailPage /></PrivateRoute>} />
               <Route path="/history" element={<PrivateRoute><ExecutionHistoryPage /></PrivateRoute>} />
               <Route path="/tenant/members" element={<PrivateRoute><MembersPage /></PrivateRoute>} />
               <Route path="/tenant/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
