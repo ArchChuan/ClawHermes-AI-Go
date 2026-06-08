@@ -60,12 +60,13 @@ func (h *SkillHandler) CreateSkill(c *gin.Context) {
 	h.registry.Register(c.Request.Context(), id, s)
 	h.logger.Info("skill created", zap.String("id", id), zap.String("name", req.Name))
 
+	createdAt, _ := h.registry.GetCreatedAt(id)
 	c.JSON(http.StatusCreated, model.SkillResponse{
 		ID:          id,
 		Name:        req.Name,
 		Description: req.Description,
 		Type:        req.Type,
-		CreatedAt:   time.Now().Format(time.RFC3339),
+		CreatedAt:   createdAt.Format(time.RFC3339),
 	})
 }
 
@@ -81,12 +82,13 @@ func (h *SkillHandler) GetSkill(c *gin.Context) {
 		return
 	}
 
+	createdAt, _ := h.registry.GetCreatedAt(id)
 	c.JSON(http.StatusOK, model.SkillResponse{
 		ID:          s.GetID(),
 		Name:        s.GetName(),
 		Description: s.GetDescription(),
 		Type:        s.GetType(),
-		CreatedAt:   time.Now().Format(time.RFC3339),
+		CreatedAt:   createdAt.Format(time.RFC3339),
 	})
 }
 
@@ -95,12 +97,13 @@ func (h *SkillHandler) GetAllSkills(c *gin.Context) {
 	responses := make([]model.SkillResponse, 0, len(skills))
 
 	for _, s := range skills {
+		createdAt, _ := h.registry.GetCreatedAt(s.GetID())
 		responses = append(responses, model.SkillResponse{
 			ID:          s.GetID(),
 			Name:        s.GetName(),
 			Description: s.GetDescription(),
 			Type:        s.GetType(),
-			CreatedAt:   time.Now().Format(time.RFC3339),
+			CreatedAt:   createdAt.Format(time.RFC3339),
 		})
 	}
 
@@ -172,12 +175,13 @@ func (h *SkillHandler) UpdateSkill(c *gin.Context) {
 	}
 
 	h.logger.Info("skill updated", zap.String("id", id))
+	createdAt, _ := h.registry.GetCreatedAt(id)
 	c.JSON(http.StatusOK, model.SkillResponse{
 		ID:          s.GetID(),
 		Name:        s.GetName(),
 		Description: s.GetDescription(),
 		Type:        s.GetType(),
-		CreatedAt:   time.Now().Format(time.RFC3339),
+		CreatedAt:   createdAt.Format(time.RFC3339),
 	})
 }
 

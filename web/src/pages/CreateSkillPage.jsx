@@ -33,11 +33,12 @@ const CreateSkillPage = () => {
       form.resetFields();
       navigate('/skills');
     } catch (error) {
-      console.error('Error creating skill:', error);
-      notification.error({
-        message: '创建失败',
-        description: error.message || '创建技能时发生错误',
-      });
+      if (error.response?.status !== 403) {
+        notification.error({
+          message: '创建失败',
+          description: error.response?.data?.error || error.message || '创建技能时发生错误',
+        });
+      }
     } finally {
       setLoading(false);
     }
