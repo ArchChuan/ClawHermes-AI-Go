@@ -185,8 +185,12 @@ func SetupRouter(
 	// requireActive blocks writes when the tenant is suspended.
 	requireActive := middleware.RequireActiveTenant(db)
 
-	// Skill endpoints
-	skills := router.Group("/skills")
+	// Skill endpoints — JWT + InjectTenantContext required (same pattern as agents)
+	var skillMW []gin.HandlerFunc
+	if jwtSvc != nil {
+		skillMW = append(skillMW, auth.JWTMiddleware(jwtSvc), middleware.InjectTenantContext())
+	}
+	skills := router.Group("/skills", skillMW...)
 	{
 		skills.GET("", skillHandler.GetAllSkills)
 		skills.POST("", requireActive, skillHandler.CreateSkill)

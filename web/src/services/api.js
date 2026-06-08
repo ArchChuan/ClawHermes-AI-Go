@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { message } from 'antd';
 
 // Dev: Vite proxy forwards /auth /health /skills etc. to :8080, same-origin so cookies work.
 // Prod: set VITE_API_BASE_URL to backend origin, or leave empty when co-hosted.
@@ -50,6 +51,13 @@ export const setupApiInterceptors = (tokenRef, onLogout) => {
     (response) => response,
     async (error) => {
       const originalRequest = error.config;
+
+      if (
+        error.response?.status === 403 &&
+        error.response?.data?.message
+      ) {
+        message.error(error.response.data.message);
+      }
 
       if (
         error.response?.status === 401 &&

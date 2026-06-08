@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  Button, 
-  Space, 
-  Tag, 
-  Modal, 
-  Card, 
-  Typography, 
+import {
+  Table,
+  Button,
+  Space,
+  Tag,
+  Modal,
+  Card,
+  Typography,
   Input,
   notification,
-  Alert
+  Alert,
+  message
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { getAllSkills } from '../services/api';
+import { getAllSkills, deleteSkill } from '../services/api';
 import { Link } from 'react-router-dom';
 
 const { Search } = Input;
@@ -44,8 +45,22 @@ const SkillsListPage = () => {
   };
 
   const handleDeleteSkill = (skillId) => {
-    // TODO: 实现删除技能功能
-    console.log('Delete skill:', skillId);
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除该技能吗？此操作不可恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteSkill(skillId);
+          message.success('技能删除成功');
+          fetchSkills();
+        } catch (error) {
+          message.error(error.response?.data?.error || '删除失败');
+        }
+      },
+    });
   };
 
   // 过滤技能列表
@@ -89,9 +104,9 @@ const SkillsListPage = () => {
     },
     {
       title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date) => new Date(date).toLocaleString(),  // 修复了这里，添加了箭头函数
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (date) => date ? new Date(date).toLocaleString() : '-',
     },
     {
       title: '操作',

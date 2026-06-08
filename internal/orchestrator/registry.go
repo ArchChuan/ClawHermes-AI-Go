@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/skill"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
@@ -13,21 +14,25 @@ import (
 )
 
 type Registry struct {
-	skills map[string]skill.Skill
-	mu     sync.RWMutex
-	pool   *pgxpool.Pool
+	skills    map[string]skill.Skill
+	createdAt map[string]time.Time
+	mu        sync.RWMutex
+	pool      *pgxpool.Pool
 }
 
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	return &Registry{
-		skills: make(map[string]skill.Skill),
-		pool:   pool,
+		skills:    make(map[string]skill.Skill),
+		createdAt: make(map[string]time.Time),
+		pool:      pool,
 	}
 }
 
 func (r *Registry) Register(ctx context.Context, id string, s skill.Skill) {
+	now := time.Now()
 	r.mu.Lock()
 	r.skills[id] = s
+	r.createdAt[id] = now
 	r.mu.Unlock()
 
 	if r.pool != nil {
@@ -49,6 +54,14 @@ func (r *Registry) Get(id string) (skill.Skill, bool) {
 	return s, ok
 }
 
+// GetCreatedAt returns the registration time of a skill.
+func (r *Registry) GetCreatedAt(id string) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.createdAt[id]
+	return t, ok
+}
+
 func (r *Registry) GetAll() []skill.Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -67,6 +80,7 @@ func (r *Registry) Remove(ctx context.Context, id string) error {
 		return fmt.Errorf("skill not found: %s", id)
 	}
 	delete(r.skills, id)
+	delete(r.createdAt, id)
 	r.mu.Unlock()
 
 	if r.pool != nil {
