@@ -139,6 +139,7 @@ export const deleteSkill = (id) => api.delete(`/skills/${id}`);
 export const getAllAgents = () => api.get('/agents');
 export const getAgentById = (id) => api.get(`/agents/${id}`);
 export const createAgent = (data) => api.post('/agents', data);
+export const updateAgent = (id, data) => api.put(`/agents/${id}`, data);
 export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task);
 export const deleteAgent = (id) => api.delete(`/agents/${id}`);
 export const getAgentExecutions = () => api.get('/agents/executions');
