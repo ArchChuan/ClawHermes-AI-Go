@@ -155,3 +155,7 @@ func (c *QwenClient) Health(ctx context.Context) error {
 	})
 	return err
 }
+
+func (c *QwenClient) Models() []string {
+	return []string{"qwen-turbo", "qwen-plus", "qwen-max", "qwen-long"}
+}

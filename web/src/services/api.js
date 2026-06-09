@@ -141,6 +141,7 @@ export const createAgent = (data) => api.post('/agents', data);
 export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task);
 export const deleteAgent = (id) => api.delete(`/agents/${id}`);
 export const getAgentExecutions = () => api.get('/agents/executions');
+export const getAvailableModels = () => api.get('/models');
 
 // Knowledge
 export const getKnowledgeWorkspaces = () => api.get('/knowledge/workspaces');

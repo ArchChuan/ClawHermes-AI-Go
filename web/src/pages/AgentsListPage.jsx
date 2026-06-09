@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Table, 
-  Button, 
-  Space, 
-  Tag, 
-  Modal, 
-  Card, 
-  Typography, 
+import {
+  Table,
+  Button,
+  Space,
+  Tag,
+  Modal,
+  Card,
+  Typography,
   Input,
-  notification 
+  notification,
+  message
 } from 'antd';
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons';
-import { getAllAgents, executeAgent } from '../services/api';
+import { getAllAgents, executeAgent, deleteAgent } from '../services/api';
 
 const { Search } = Input;
 const { Title } = Typography;
@@ -67,9 +68,25 @@ const AgentsListPage = () => {
     }
   };
 
-  const handleDeleteAgent = (agentId) => {
-    // TODO: 实现删除代理功能
-    console.log('Delete agent:', agentId);
+  const handleDeleteAgent = (agentId, agentName) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除代理 "${agentName}" 吗？此操作不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteAgent(agentId);
+          message.success('代理删除成功');
+          fetchAgents();
+        } catch (error) {
+          if (error.response?.status !== 403) {
+            message.error(error.response?.data?.error || '删除失败');
+          }
+        }
+      },
+    });
   };
 
   // 过滤代理列表
@@ -113,7 +130,7 @@ const AgentsListPage = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      render: (date) => new Date(date).toLocaleString(),  // 修复了这里，添加了箭头函数
+      render: (date) => date ? new Date(date).toLocaleString() : '-',
     },
     {
       title: '操作',
@@ -131,7 +148,7 @@ const AgentsListPage = () => {
             type="link" 
             danger 
             icon={<DeleteOutlined />}
-            onClick={() => handleDeleteAgent(record.id)}
+            onClick={() => handleDeleteAgent(record.id, record.name)}
           >
             删除
           </Button>

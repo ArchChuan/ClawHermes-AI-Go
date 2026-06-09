@@ -128,6 +128,10 @@ func SetupRouter(
 		})
 	})
 
+	// Available chat models (no auth required)
+	modelHandler := handler.NewModelHandler(gateway)
+	router.GET("/models", modelHandler.ListModels)
+
 	// Initialize services
 	vectorStore := vectorstore.NewVectorStore(cfg.MilvusHost, cfg.MilvusPort, logger)
 	graphRAG := knowledge.NewGraphRAG(cfg.Neo4jURI, cfg.Neo4jUser, cfg.Neo4jPassword, logger)

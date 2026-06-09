@@ -10,6 +10,7 @@ import (
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/pashagolub/pgxmock/v2"
 	"go.uber.org/zap"
 )
@@ -29,7 +30,7 @@ func setupTenantHandlerRouter(h *TenantHandler) *gin.Engine {
 	injectAdmin := func(c *gin.Context) { c.Set("auth.role", "admin"); c.Next() }
 	r.GET("/tenant/members", inject, h.ListMembers)
 	r.POST("/tenant/members/invite", inject, injectAdmin, h.InviteMember)
-	r.DELETE("/tenant/members/:user_id", inject, h.RemoveMember)
+	r.DELETE("/tenant/members/:user_id", inject, injectAdmin, h.RemoveMember)
 	return r
 }
 
@@ -134,6 +135,10 @@ func TestRemoveMember_success(t *testing.T) {
 	}
 	defer mock.Close()
 
+	mock.ExpectQuery("SELECT role FROM public.tenant_members").
+		WithArgs("tenant-abc", "user-1").
+		WillReturnRows(pgxmock.NewRows([]string{"role"}).AddRow("member"))
+
 	mock.ExpectExec("DELETE FROM public.tenant_members").
 		WithArgs("tenant-abc", "user-1").
 		WillReturnResult(pgxmock.NewResult("DELETE", 1))
@@ -156,6 +161,10 @@ func TestRemoveMember_success(t *testing.T) {
 func TestRemoveMember_notFound(t *testing.T) {
 	mock, _ := pgxmock.NewPool()
 	defer mock.Close()
+
+	mock.ExpectQuery("SELECT role FROM public.tenant_members").
+		WithArgs("tenant-abc", "ghost-user").
+		WillReturnError(pgx.ErrNoRows)
 
 	mock.ExpectExec("DELETE FROM public.tenant_members").
 		WithArgs("tenant-abc", "ghost-user").
