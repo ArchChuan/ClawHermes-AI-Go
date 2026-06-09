@@ -10,6 +10,14 @@ import (
 	"go.uber.org/zap"
 )
 
+type TemporalConfig struct {
+	HostPort                      string
+	Namespace                     string
+	TaskQueue                     string
+	WorkerMaxConcurrentActivities int
+	WorkerMaxConcurrentWorkflows  int
+}
+
 type Config struct {
 	Port                   string
 	NatsURL                string
@@ -30,6 +38,7 @@ type Config struct {
 	FrontendURL            string
 	GitHubCallbackURL      string
 	SecureCookies          bool
+	Temporal               TemporalConfig
 }
 
 type Services struct {
@@ -84,6 +93,13 @@ Xs7H7wghedooc+rnxfIKujoU34fW7t32blpGW6dSM/qwFPiEHXfkLQ==
 		FrontendURL:            getEnv("FRONTEND_URL", "http://localhost:3002"),
 		GitHubCallbackURL:      getEnv("GITHUB_CALLBACK_URL", "http://localhost:3002/auth/github/callback"),
 		SecureCookies:          getEnv("SECURE_COOKIES", "") == "true",
+		Temporal: TemporalConfig{
+			HostPort:                      getEnv("TEMPORAL_HOST_PORT", "localhost:7233"),
+			Namespace:                     getEnv("TEMPORAL_NAMESPACE", "clawhermes"),
+			TaskQueue:                     getEnv("TEMPORAL_TASK_QUEUE", "agent-react"),
+			WorkerMaxConcurrentActivities: 20,
+			WorkerMaxConcurrentWorkflows:  100,
+		},
 	}, nil
 }
 
