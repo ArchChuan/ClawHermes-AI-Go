@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Form, Input, Button, Typography, message, Card, Space, Divider, Spin } from 'antd';
-import { EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
+import { EyeInvisibleOutlined, EyeTwoTone, CheckCircleFilled } from '@ant-design/icons';
 import { getTenantSettings, updateTenant } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -31,7 +31,7 @@ const SettingsPage = () => {
       // the user must type a new value to update (same as GitHub/Stripe).
       setMaskedKeys(apiKeys);
     } catch (err) {
-      message.error(err.response?.data?.message || '加载设置失败');
+      if (err.response?.status !== 403) message.error(err.response?.data?.message || '加载设置失败');
     } finally {
       setFetchLoading(false);
     }
@@ -48,24 +48,29 @@ const SettingsPage = () => {
       message.success('设置已保存');
       login({ ...user, current_tenant: { ...user.current_tenant, ...values } }, accessToken);
     } catch (err) {
-      message.error(err.response?.data?.message || '保存失败');
+      if (err.response?.status !== 403) message.error(err.response?.data?.message || '保存失败');
     } finally {
       setLoading(false);
     }
   };
 
   const handleKeySave = async (values) => {
+    const llm_api_keys = {};
+    PROVIDERS.forEach(({ key }) => {
+      if (values[key]) llm_api_keys[key] = values[key];
+    });
+    if (Object.keys(llm_api_keys).length === 0) {
+      message.warning('请输入至少一个 API Key');
+      return;
+    }
     setKeyLoading(true);
     try {
-      const llm_api_keys = {};
-      PROVIDERS.forEach(({ key }) => {
-        if (values[key]) llm_api_keys[key] = values[key];
-      });
       await updateTenant({ settings: { llm_api_keys } });
+      keyForm.resetFields();
       message.success('API Key 已保存');
       await loadSettings();
     } catch (err) {
-      message.error(err.response?.data?.message || '保存失败');
+      if (err.response?.status !== 403) message.error(err.response?.data?.message || '保存失败');
     } finally {
       setKeyLoading(false);
     }
@@ -88,9 +93,6 @@ const SettingsPage = () => {
           <Form.Item label="租户名称" name="name" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input maxLength={64} />
           </Form.Item>
-          <Form.Item label="头像 URL" name="avatar_url">
-            <Input placeholder="https://example.com/avatar.png" />
-          </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={loading}>保存</Button>
           </Form.Item>
@@ -105,9 +107,19 @@ const SettingsPage = () => {
         <Spin spinning={fetchLoading}>
           <Form form={keyForm} layout="vertical" onFinish={handleKeySave}>
             {PROVIDERS.map(({ key, label }) => (
-              <Form.Item key={key} label={label} name={key}>
+              <Form.Item
+                key={key}
+                label={label}
+                name={key}
+                extra={maskedKeys[key] ? (
+                  <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                    <CheckCircleFilled style={{ color: '#52c41a', marginRight: 4 }} />
+                    {maskedKeys[key]}
+                  </Text>
+                ) : undefined}
+              >
                 <Input.Password
-                  placeholder={canEditKeys ? '输入 API Key，留空则不更改' : '已配置（脱敏显示）'}
+                  placeholder={canEditKeys ? '输入新值以覆盖，留空则不更改' : '无权限修改'}
                   disabled={!canEditKeys}
                   iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
                 />
