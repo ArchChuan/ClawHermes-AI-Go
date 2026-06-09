@@ -20,13 +20,19 @@ var _ poolIface = (*pgxpool.Pool)(nil) // compile-time check
 
 // Registry persists Agent configs in PostgreSQL under per-tenant schemas.
 type Registry struct {
-	pool   poolIface
-	logger *zap.Logger
+	pool           poolIface
+	logger         *zap.Logger
+	temporalClient TemporalWorkflowStarter
 }
 
 // NewRegistry creates a Registry. pool must not be nil.
 func NewRegistry(pool *pgxpool.Pool, logger *zap.Logger) *Registry {
 	return &Registry{pool: pool, logger: logger}
+}
+
+// SetTemporalClient injects a Temporal client so agents created via Get/GetAll have it wired.
+func (r *Registry) SetTemporalClient(c TemporalWorkflowStarter) {
+	r.temporalClient = c
 }
 
 // execTenant runs fn in a transaction with search_path set to the tenant schema from ctx.
@@ -90,7 +96,11 @@ func (r *Registry) Get(ctx context.Context, id string) (Agent, bool) {
 		return nil, false
 	}
 	cfg.Type = AgentType(agentType)
-	return NewBaseAgent(&cfg, r.logger), true
+	a := NewBaseAgent(&cfg, r.logger)
+	if r.temporalClient != nil {
+		a.SetTemporalClient(r.temporalClient)
+	}
+	return a, true
 }
 
 // GetAll returns all agents in the tenant schema.
@@ -112,7 +122,11 @@ func (r *Registry) GetAll(ctx context.Context) []Agent {
 				continue
 			}
 			cfg.Type = AgentType(agentType)
-			agents = append(agents, NewBaseAgent(&cfg, r.logger))
+			a := NewBaseAgent(&cfg, r.logger)
+			if r.temporalClient != nil {
+				a.SetTemporalClient(r.temporalClient)
+			}
+			agents = append(agents, a)
 		}
 		return rows.Err()
 	})

@@ -40,6 +40,7 @@ func SetupRouter(
 	gateway *llmgateway.Gateway,
 	db *pgxpool.Pool,
 	rdb *goredis.Client,
+	temporalClient agent.TemporalWorkflowStarter,
 ) *gin.Engine {
 	router := gin.Default()
 
@@ -161,6 +162,9 @@ func SetupRouter(
 
 	// Initialize agent registry and handler
 	agentRegistry := agent.NewRegistry(db, logger)
+	if temporalClient != nil {
+		agentRegistry.SetTemporalClient(temporalClient)
+	}
 	var execStore *agent.ExecutionStore
 	if db != nil {
 		execStore = agent.NewExecutionStore(db)
