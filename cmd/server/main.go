@@ -168,7 +168,7 @@ func main() {
 	}
 
 	// 6. HTTP Server component
-	router := api.SetupRouter(cfg, logger, registry, gateway, pgPool.DB(), redisClient.Client(), temporalWorker.Client())
+	router := api.SetupRouter(cfg, logger, registry, gateway, pgPool.DB(), redisClient.Client(), temporalWorker)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
