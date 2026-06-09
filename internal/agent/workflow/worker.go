@@ -84,9 +84,6 @@ func (c *TemporalWorkerComponent) HealthCheck(_ context.Context) error {
 	return nil
 }
 
-// Client returns the Temporal client for workflow submission (used by BaseAgent).
-func (c *TemporalWorkerComponent) Client() client.Client { return c.client }
-
 // ExecuteWorkflow implements agent.TemporalWorkflowStarter.
 // Delegates to the underlying Temporal client initialized in Start().
 func (c *TemporalWorkerComponent) ExecuteWorkflow(
