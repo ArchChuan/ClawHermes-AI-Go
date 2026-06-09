@@ -4,6 +4,7 @@ package llmgateway
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +44,8 @@ type CompletionResponse struct {
 type LLMClient interface {
 	Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error)
 	Health(ctx context.Context) error
+	// Models returns the chat model names supported by this provider.
+	Models() []string
 }
 
 type EmbeddingRequest struct {
@@ -150,6 +153,16 @@ func (g *Gateway) Health(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ListChatModels returns all chat model names across registered providers, sorted.
+func (g *Gateway) ListChatModels() []string {
+	var models []string
+	for _, client := range g.clients {
+		models = append(models, client.Models()...)
+	}
+	sort.Strings(models)
+	return models
 }
 
 func (g *Gateway) parseProvider(model string) ModelProvider {

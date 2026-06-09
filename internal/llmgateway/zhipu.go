@@ -155,3 +155,7 @@ func (c *ZhipuClient) Health(ctx context.Context) error {
 	})
 	return err
 }
+
+func (c *ZhipuClient) Models() []string {
+	return []string{"glm-4-flash", "glm-4", "glm-4-air", "glm-4v"}
+}

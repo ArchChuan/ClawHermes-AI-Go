@@ -1,20 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Form, 
-  Input, 
-  Select, 
-  Button, 
-  Card, 
-  Space, 
-  Typography, 
+import {
+  Form,
+  Input,
+  Select,
+  Button,
+  Card,
+  Space,
+  Typography,
   notification,
-  Divider,
   InputNumber,
   Tag,
-  Row,
-  Col
+  message
 } from 'antd';
-import { createAgent, getAllSkills } from '../services/api';
+import { createAgent, getAllSkills, getAvailableModels } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
 const { Title } = Typography;
@@ -25,26 +23,38 @@ const CreateAgentPage = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [skills, setSkills] = useState([]);
-  const [availableModels] = useState([
-    'gpt-4', 'gpt-3.5-turbo', 'claude-3-opus', 'claude-3-sonnet', 
-    'gemini-pro', 'llama-2', 'mistral-large'
-  ]);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
+    loadModels();
     loadSkills();
   }, []);
+
+  const FALLBACK_MODELS = ['glm-4', 'glm-4-flash', 'qwen-plus', 'qwen-turbo'];
+
+  const loadModels = async () => {
+    try {
+      const res = await getAvailableModels();
+      const models = res.data.models?.length > 0 ? res.data.models : FALLBACK_MODELS;
+      setAvailableModels(models);
+      form.setFieldValue('llmModel', models[0]);
+    } catch {
+      message.warning('加载模型列表失败，使用默认列表');
+      setAvailableModels(FALLBACK_MODELS);
+      form.setFieldValue('llmModel', FALLBACK_MODELS[0]);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
 
   const loadSkills = async () => {
     try {
       const response = await getAllSkills();
       setSkills(response.data.skills || []);
     } catch (error) {
-      console.error('Error loading skills:', error);
-      notification.error({
-        message: '加载技能失败',
-        description: error.message,
-      });
+      message.error(error.response?.data?.error || '加载技能列表失败');
     }
   };
 
@@ -86,8 +96,8 @@ const CreateAgentPage = () => {
           wrapperCol={{ span: 14 }}
           layout="horizontal"
           onFinish={onFinish}
-          initialValues={{ 
-            llmModel: 'gpt-4', 
+          initialValues={{
+            llmModel: '',
             maxIterations: 5,
             allowedSkills: []
           }}
@@ -132,7 +142,7 @@ const CreateAgentPage = () => {
             name="llmModel"
             rules={[{ required: true, message: '请选择LLM模型!' }]}
           >
-            <Select placeholder="请选择LLM模型">
+            <Select placeholder="请选择LLM模型" loading={modelsLoading}>
               {availableModels.map(model => (
                 <Option key={model} value={model}>{model}</Option>
               ))}
