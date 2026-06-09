@@ -456,15 +456,14 @@ func (h *TenantHandler) ListUserTenants(c *gin.Context) {
 	c.JSON(http.StatusOK, model.TenantListResponse{Tenants: items})
 }
 
-// maskAPIKey returns a fixed-length placeholder that does not reveal any key characters.
-// Length is preserved as a visual hint that a key is configured.
+// maskAPIKey replaces key characters with bullets, capped at 32, as a presence hint.
 func maskAPIKey(key string) string {
 	if key == "" {
 		return ""
 	}
-	show := 6
-	if len(key) <= show {
-		show = len(key) / 2
+	n := len([]rune(key))
+	if n > 32 {
+		n = 32
 	}
-	return key[:show] + strings.Repeat("•", 8)
+	return strings.Repeat("•", n)
 }
