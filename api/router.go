@@ -214,6 +214,7 @@ func SetupRouter(
 		agents.GET("/executions", agentHandler.ListExecutions)
 		agents.GET("/:id", agentHandler.GetAgent)
 		agents.POST("/:id/execute", requireActive, agentHandler.ExecuteAgent)
+		agents.PUT("/:id", requireActive, agentHandler.UpdateAgent)
 		agents.DELETE("/:id", requireActive, agentHandler.DeleteAgent)
 	}
 
