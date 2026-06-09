@@ -19,7 +19,7 @@ const SettingsPage = () => {
   const [keyLoading, setKeyLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
 
-  const role = user?.current_tenant?.role;
+  const role = user?.current_tenant?.role || user?.role;
   const canEditKeys = role === 'owner' || role === 'admin';
 
   const loadSettings = useCallback(async () => {
