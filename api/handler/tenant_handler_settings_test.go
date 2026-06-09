@@ -8,19 +8,32 @@ import (
 
 func TestMaskAPIKey(t *testing.T) {
 	cases := []struct {
-		input string
-		want  string
+		input     string
+		wantLen   int
+		wantEmpty bool
 	}{
-		{"", ""},
-		{"abc", "****"},
-		{"abcd", "****"},
-		{"abcde", "****bcde"},
-		{"sk-abc1234567", "****4567"},
+		{"", 0, true},
+		{"abc", 3, false},
+		{"sk-abc1234567", 13, false},
+		{"sk-" + string(make([]byte, 30)), 32, false}, // capped at 32
 	}
 	for _, tc := range cases {
 		got := maskAPIKey(tc.input)
-		if got != tc.want {
-			t.Errorf("maskAPIKey(%q) = %q, want %q", tc.input, got, tc.want)
+		if tc.wantEmpty {
+			if got != "" {
+				t.Errorf("maskAPIKey(%q) = %q, want empty", tc.input, got)
+			}
+			continue
+		}
+		// must be all bullet chars
+		for _, r := range got {
+			if r != '•' {
+				t.Errorf("maskAPIKey(%q) = %q contains non-bullet char", tc.input, got)
+				break
+			}
+		}
+		if len([]rune(got)) != tc.wantLen {
+			t.Errorf("maskAPIKey(%q) len = %d, want %d", tc.input, len([]rune(got)), tc.wantLen)
 		}
 	}
 }

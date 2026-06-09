@@ -18,6 +18,7 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [keyLoading, setKeyLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
+  const [maskedKeys, setMaskedKeys] = useState({});
 
   const role = user?.current_tenant?.role || user?.role;
   const canEditKeys = role === 'owner' || role === 'admin';
@@ -26,17 +27,15 @@ const SettingsPage = () => {
     try {
       const res = await getTenantSettings();
       const apiKeys = res.data?.settings?.llm_api_keys || {};
-      const initialValues = {};
-      PROVIDERS.forEach(({ key }) => {
-        initialValues[key] = apiKeys[key] || '';
-      });
-      keyForm.setFieldsValue(initialValues);
+      // Store masked values separately; don't pre-fill the form fields so
+      // the user must type a new value to update (same as GitHub/Stripe).
+      setMaskedKeys(apiKeys);
     } catch (err) {
       message.error(err.response?.data?.message || '加载设置失败');
     } finally {
       setFetchLoading(false);
     }
-  }, [keyForm]);
+  }, []);
 
   useEffect(() => {
     loadSettings();

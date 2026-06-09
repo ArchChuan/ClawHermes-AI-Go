@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/model"
@@ -365,6 +366,10 @@ func (h *TenantHandler) UpdateSettings(c *gin.Context) {
 				if !ok || plaintext == "" {
 					continue
 				}
+				// skip placeholder values sent back by the frontend (all bullet chars)
+				if strings.Trim(plaintext, "•") == "" {
+					continue
+				}
 				enc, err := pkgcrypto.Encrypt(h.aesKey, plaintext)
 				if err != nil {
 					h.logger.Error("encrypt api key failed", zap.String("provider", provider), zap.Error(err))
@@ -451,13 +456,15 @@ func (h *TenantHandler) ListUserTenants(c *gin.Context) {
 	c.JSON(http.StatusOK, model.TenantListResponse{Tenants: items})
 }
 
-// maskAPIKey returns a masked version of an API key showing only the last 4 chars.
+// maskAPIKey returns a fixed-length placeholder that does not reveal any key characters.
+// Length is preserved as a visual hint that a key is configured.
 func maskAPIKey(key string) string {
 	if key == "" {
 		return ""
 	}
-	if len(key) <= 4 {
-		return "****"
+	n := len(key)
+	if n > 32 {
+		n = 32
 	}
-	return "****" + key[len(key)-4:]
+	return strings.Repeat("•", n)
 }
