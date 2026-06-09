@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api"
+	agentpkg "github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent"
 	agentworkflow "github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent/workflow"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/capgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/config"
@@ -27,6 +28,9 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"go.uber.org/zap"
 )
+
+// compile-time interface assertion
+var _ agentpkg.TemporalWorkflowStarter = (*agentworkflow.TemporalWorkerComponent)(nil)
 
 func main() {
 	logger, err := zap.NewProduction()
