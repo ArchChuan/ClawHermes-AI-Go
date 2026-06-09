@@ -286,6 +286,34 @@ services:
     depends_on:
       - milvus
 
+  # Temporal server (dev mode with embedded SQLite)
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    environment:
+      - DB=sqlite
+      - TEMPORAL_ADDRESS=0.0.0.0:7233
+    ports:
+      - "7233:7233"
+    networks:
+      - clawhermes
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Temporal Web UI http://localhost:8088
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8088:8080"
+    networks:
+      - clawhermes
+    depends_on:
+      - temporal
+
 networks:
   clawhermes:
     driver: bridge
