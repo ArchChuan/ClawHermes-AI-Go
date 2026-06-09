@@ -1,15 +1,48 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Typography, message, Card } from 'antd';
-import { updateTenant } from '../../services/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Form, Input, Button, Typography, message, Card, Space, Divider, Spin } from 'antd';
+import { EyeInvisibleOutlined, EyeTwoTone } from '@ant-design/icons';
+import { getTenantSettings, updateTenant } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
+
+const PROVIDERS = [
+  { key: 'qwen',  label: '通义千问 (Qwen)' },
+  { key: 'zhipu', label: '智谱 AI (Zhipu)' },
+];
 
 const SettingsPage = () => {
   const { user, login, accessToken } = useAuth();
+  const [basicForm] = Form.useForm();
+  const [keyForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [keyLoading, setKeyLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
 
-  const handleSave = async (values) => {
+  const role = user?.current_tenant?.role;
+  const canEditKeys = role === 'owner' || role === 'admin';
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await getTenantSettings();
+      const apiKeys = res.data?.settings?.llm_api_keys || {};
+      const initialValues = {};
+      PROVIDERS.forEach(({ key }) => {
+        initialValues[key] = apiKeys[key] || '';
+      });
+      keyForm.setFieldsValue(initialValues);
+    } catch (err) {
+      message.error(err.response?.data?.message || '加载设置失败');
+    } finally {
+      setFetchLoading(false);
+    }
+  }, [keyForm]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  const handleBasicSave = async (values) => {
     setLoading(true);
     try {
       await updateTenant(values);
@@ -22,17 +55,36 @@ const SettingsPage = () => {
     }
   };
 
+  const handleKeySave = async (values) => {
+    setKeyLoading(true);
+    try {
+      const llm_api_keys = {};
+      PROVIDERS.forEach(({ key }) => {
+        if (values[key]) llm_api_keys[key] = values[key];
+      });
+      await updateTenant({ settings: { llm_api_keys } });
+      message.success('API Key 已保存');
+      await loadSettings();
+    } catch (err) {
+      message.error(err.response?.data?.message || '保存失败');
+    } finally {
+      setKeyLoading(false);
+    }
+  };
+
   return (
     <div>
       <Title level={4} style={{ marginBottom: 24 }}>租户设置</Title>
-      <Card style={{ maxWidth: 480 }}>
+
+      <Card style={{ maxWidth: 520, marginBottom: 24 }}>
         <Form
+          form={basicForm}
           layout="vertical"
           initialValues={{
             name: user?.current_tenant?.name || '',
             avatar_url: user?.current_tenant?.avatar_url || '',
           }}
-          onFinish={handleSave}
+          onFinish={handleBasicSave}
         >
           <Form.Item label="租户名称" name="name" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input maxLength={64} />
@@ -44,6 +96,40 @@ const SettingsPage = () => {
             <Button type="primary" htmlType="submit" loading={loading}>保存</Button>
           </Form.Item>
         </Form>
+      </Card>
+
+      <Card
+        title="LLM API Key 配置"
+        style={{ maxWidth: 520 }}
+        extra={!canEditKeys && <Text type="secondary">仅 owner/admin 可编辑</Text>}
+      >
+        <Spin spinning={fetchLoading}>
+          <Form form={keyForm} layout="vertical" onFinish={handleKeySave}>
+            {PROVIDERS.map(({ key, label }) => (
+              <Form.Item key={key} label={label} name={key}>
+                <Input.Password
+                  placeholder={canEditKeys ? '输入 API Key，留空则不更改' : '已配置（脱敏显示）'}
+                  disabled={!canEditKeys}
+                  iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
+                />
+              </Form.Item>
+            ))}
+            <Divider style={{ margin: '8px 0 16px' }} />
+            <Space>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={keyLoading}
+                disabled={!canEditKeys}
+              >
+                保存 API Key
+              </Button>
+              {!canEditKeys && (
+                <Text type="secondary" style={{ fontSize: 12 }}>当前角色（{role}）无权限修改</Text>
+              )}
+            </Space>
+          </Form>
+        </Spin>
       </Card>
     </div>
   );

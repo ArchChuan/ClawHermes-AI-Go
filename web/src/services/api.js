@@ -120,6 +120,7 @@ export const getTenantMembers = () => api.get('/tenant/members');
 export const inviteMember = (data) => api.post('/tenant/members/invite', data);
 export const updateMemberRole = (userId, role) => api.patch(`/tenant/members/${userId}/role`, { role });
 export const removeMember = (userId) => api.delete(`/tenant/members/${userId}`);
+export const getTenantSettings = () => api.get('/tenant/settings');
 export const updateTenant = (data) => api.patch('/tenant/settings', data);
 export const getAllTenants = () => api.get('/admin/tenants');
 export const setTenantEnabled = (tenantId, enabled) => api.patch(`/admin/tenants/${tenantId}`, { status: enabled ? 'active' : 'suspended' });
