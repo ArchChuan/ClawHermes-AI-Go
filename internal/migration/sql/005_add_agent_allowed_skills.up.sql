@@ -1,0 +1,1 @@
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS allowed_skills TEXT[] NOT NULL DEFAULT '{}';
