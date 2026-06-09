@@ -87,6 +87,7 @@ type AgentConfig struct {
 	SystemPrompt  string
 	LLMModel      string
 	MaxIterations int
+	AllowedSkills []string
 	Capabilities  []AgentCapability
 }
 
@@ -221,7 +222,6 @@ func (a *BaseAgent) AddToMemory(msg Message) {
 		entry := &memory.MemoryEntry{
 			Role:      msg.Role,
 			Content:   msg.Content,
-			Timestamp: msg.Timestamp,
 			TenantID:  a.SessionContext.TenantID,
 			UserID:    a.SessionContext.UserID,
 			SessionID: a.SessionContext.SessionID,
