@@ -493,21 +493,26 @@ func WithExtraTools(tools []capgateway.ToolDefinition) ExecutionOption {
 	}
 }
 
+// WithConversationID sets the conversation ID for multi-turn history loading.
 func WithConversationID(id string) ExecutionOption {
 	return func(cfg *ExecutionConfig) {
 		cfg.ConversationID = id
 	}
 }
 
+// WithUserID sets the user ID for conversation history access control.
 func WithUserID(id string) ExecutionOption {
 	return func(cfg *ExecutionConfig) {
 		cfg.UserID = id
 	}
 }
 
+// WithHistoryWindow sets the max number of history messages to load. n≤0 uses default (20).
 func WithHistoryWindow(n int) ExecutionOption {
 	return func(cfg *ExecutionConfig) {
-		cfg.HistoryWindow = n
+		if n > 0 {
+			cfg.HistoryWindow = n
+		}
 	}
 }
 
