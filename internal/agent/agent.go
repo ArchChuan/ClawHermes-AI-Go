@@ -281,6 +281,7 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 	systemPrompt := a.SystemPrompt
 	llmModel := a.LLMModel
 	capGW := a.CapGateway
+	chatStore := a.ChatStore
 	metrics := a.metrics
 	workspaceNames := a.KnowledgeWorkspaceNames
 	a.mu.Unlock()
@@ -296,6 +297,18 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 		Metadata: map[string]interface{}{},
 	}
 
+	// Load short-term conversation history from ChatStore (single source of truth).
+	var history []*ChatMessage
+	if chatStore != nil && cfg.ConversationID != "" {
+		if msgs, err := chatStore.ListMessages(ctx, cfg.TenantID, cfg.ConversationID, cfg.UserID); err != nil {
+			a.Logger.Warn("agent: failed to load conversation history",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		} else {
+			history = msgs
+		}
+	}
+
 	var execErr error
 	switch agentType {
 	case ReActAgent:
@@ -308,7 +321,7 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 			execErr = fmt.Errorf("react: build graph: %w", buildErr)
 			break
 		}
-		initMessages := BuildInitMessages(systemPrompt, nil, cfg.HistoryWindow)
+		initMessages := BuildInitMessages(systemPrompt, history, cfg.HistoryWindow)
 		initMessages = append(initMessages, capgateway.LLMMessage{Role: "user", Content: input})
 
 		var availableTools []capgateway.ToolDefinition
@@ -399,6 +412,31 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 	default:
 		result.Output = "Unknown agent type"
 		execErr = fmt.Errorf("unknown agent type: %s", agentType)
+	}
+
+	// Persist user input and agent output to ChatStore (outside switch — all agent types benefit).
+	if chatStore != nil && cfg.ConversationID != "" && execErr == nil {
+		saveCtx := ctx
+		userMsg := &ChatMessage{
+			ConversationID: cfg.ConversationID,
+			Role:           "user",
+			Content:        input,
+		}
+		if err := chatStore.AddMessage(saveCtx, cfg.TenantID, userMsg); err != nil {
+			a.Logger.Warn("agent: failed to save user message",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		}
+		agentMsg := &ChatMessage{
+			ConversationID: cfg.ConversationID,
+			Role:           "agent",
+			Content:        result.Output,
+		}
+		if err := chatStore.AddMessage(saveCtx, cfg.TenantID, agentMsg); err != nil {
+			a.Logger.Warn("agent: failed to save agent message",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		}
 	}
 
 	result.Duration = time.Since(startTime)

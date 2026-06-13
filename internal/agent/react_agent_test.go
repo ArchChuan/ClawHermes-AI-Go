@@ -172,6 +172,69 @@ func TestBaseAgent_WithChatStore_SetsField(t *testing.T) {
 	require.NotNil(t, result)
 }
 
+func TestExecute_PersistsMessagesToChatStore(t *testing.T) {
+	a := newReActAgent()
+	gw := &mockCapGW{
+		responses: []capgateway.CapabilityResponse{
+			{Content: "six", Usage: capgateway.TokenUsage{Total: 5}},
+		},
+	}
+	a.SetCapGateway(gw)
+
+	var savedMsgs []*agent.ChatMessage
+	cs := &mockChatStore{
+		addMsg: func(ctx context.Context, tenantID string, msg *agent.ChatMessage) error {
+			saved := *msg
+			savedMsgs = append(savedMsgs, &saved)
+			return nil
+		},
+	}
+	a.WithChatStore(cs)
+
+	_, err := a.Execute(context.Background(), "what is 3+3?",
+		agent.WithTenantID("t1"),
+		agent.WithConversationID("conv-xyz"),
+		agent.WithUserID("user-2"),
+	)
+	require.NoError(t, err)
+	require.Len(t, savedMsgs, 2)
+	require.Equal(t, "user", savedMsgs[0].Role)
+	require.Equal(t, "what is 3+3?", savedMsgs[0].Content)
+	require.Equal(t, "agent", savedMsgs[1].Role)
+	require.Equal(t, "six", savedMsgs[1].Content)
+	require.Equal(t, "conv-xyz", savedMsgs[0].ConversationID)
+	require.Equal(t, "conv-xyz", savedMsgs[1].ConversationID)
+}
+
+func TestExecute_LoadsHistoryFromChatStore(t *testing.T) {
+	a := newReActAgent()
+	gw := &mockCapGW{
+		responses: []capgateway.CapabilityResponse{
+			{Content: "I remember you asked before", Usage: capgateway.TokenUsage{Total: 5}},
+		},
+	}
+	a.SetCapGateway(gw)
+
+	history := []*agent.ChatMessage{
+		{Role: "user", Content: "what is 2+2?"},
+		{Role: "agent", Content: "2+2=4"},
+	}
+	cs := &mockChatStore{
+		listMsgs: func(ctx context.Context, tenantID, convID, userID string) ([]*agent.ChatMessage, error) {
+			return history, nil
+		},
+	}
+	a.WithChatStore(cs)
+
+	result, err := a.Execute(context.Background(), "and 3+3?",
+		agent.WithTenantID("t1"),
+		agent.WithConversationID("conv-abc"),
+		agent.WithUserID("user-1"),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "I remember you asked before", result.Output)
+}
+
 func TestBuildInitMessages_EmptyHistory(t *testing.T) {
 	msgs := agent.BuildInitMessages("You are helpful.", nil, 0)
 	require.Len(t, msgs, 1)
