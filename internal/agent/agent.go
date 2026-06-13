@@ -430,8 +430,11 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 		capturedInput := input
 		capturedOutput := result.Output
 		capturedAgentID := agentID
-		go func() { //nolint:gosec
-			idxCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// WithoutCancel detaches from request cancellation so indexing survives
+		// the HTTP response, while still carrying trace/tenant context values.
+		detachedCtx := context.WithoutCancel(ctx)
+		go func() {
+			idxCtx, cancel := context.WithTimeout(detachedCtx, 10*time.Second)
 			defer cancel()
 			userEntry := &memory.MemoryEntry{
 				Role:      "user",

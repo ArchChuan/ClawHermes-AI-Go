@@ -103,7 +103,8 @@ except Exception as e:
 	memBytes := strconv.Itoa(e.cfg.PythonMemoryMB * 1024 * 1024)
 
 	// prlimit wraps python3 with: virtual-address-space, CPU time (5s hard), open files (16)
-	cmd := exec.CommandContext(ctx, "prlimit", //nolint:gosec
+	// #nosec G204 -- user code is pre-validated by StaticAnalyzer before reaching this point
+	cmd := exec.CommandContext(ctx, "prlimit",
 		"--as="+memBytes,
 		"--cpu=5",
 		"--nofile=16",
@@ -144,7 +145,7 @@ func (e *CodeExecutor) runJS(ctx context.Context, code string, input map[string]
 
 	// Disable potentially dangerous globals.
 	for _, g := range []string{"require", "XMLHttpRequest", "fetch"} {
-		vm.Set(g, goja.Undefined()) //nolint:gosec,errcheck
+		vm.Set(g, goja.Undefined()) //nolint:gosec,errcheck // #nosec G104
 	}
 
 	// Inject input as __input__ global.
