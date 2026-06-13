@@ -12,6 +12,27 @@ import (
 	"go.uber.org/zap"
 )
 
+// Mock for ChatStore interface
+type mockChatStore struct {
+	agent.ChatStore
+	listMsgs func(ctx context.Context, tenantID, convID, userID string) ([]*agent.ChatMessage, error)
+	addMsg   func(ctx context.Context, tenantID string, msg *agent.ChatMessage) error
+}
+
+func (m *mockChatStore) ListMessages(ctx context.Context, tenantID, convID, userID string) ([]*agent.ChatMessage, error) {
+	if m.listMsgs != nil {
+		return m.listMsgs(ctx, tenantID, convID, userID)
+	}
+	return nil, nil
+}
+
+func (m *mockChatStore) AddMessage(ctx context.Context, tenantID string, msg *agent.ChatMessage) error {
+	if m.addMsg != nil {
+		return m.addMsg(ctx, tenantID, msg)
+	}
+	return nil
+}
+
 // mockCapGW drives LLM responses in sequence; tools always succeed.
 type mockCapGW struct {
 	mu        sync.Mutex
@@ -142,4 +163,11 @@ func TestBaseAgent_SetCapGateway_DataRace(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestBaseAgent_WithChatStore_SetsField(t *testing.T) {
+	a := newReActAgent()
+	cs := &mockChatStore{}
+	result := a.WithChatStore(cs)
+	require.NotNil(t, result)
 }

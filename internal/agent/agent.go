@@ -129,6 +129,7 @@ type BaseAgent struct {
 	MemoryManager  *memory.MemoryManager
 	SessionContext *memory.SessionContext
 	CapGateway     capgateway.CapabilityGateway
+	ChatStore      ChatStore
 }
 
 // AgentState represents the current state of an agent
@@ -187,6 +188,14 @@ func (a *BaseAgent) SetCapGateway(gw capgateway.CapabilityGateway) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.CapGateway = gw
+}
+
+// WithChatStore sets the chat store for conversation history persistence.
+func (a *BaseAgent) WithChatStore(cs ChatStore) *BaseAgent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ChatStore = cs
+	return a
 }
 
 // GetConfig implements Agent interface
