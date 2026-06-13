@@ -7,18 +7,12 @@ import (
 	"sync"
 	"time"
 
-	agentworkflow "github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent/workflow"
+	agentgraph "github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent/graph"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/capgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/memory"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
-	temporalclient "go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
-
-// TemporalWorkflowStarter is a minimal interface over temporal client for testability.
-type TemporalWorkflowStarter interface {
-	ExecuteWorkflow(ctx context.Context, options temporalclient.StartWorkflowOptions, workflow interface{}, args ...interface{}) (temporalclient.WorkflowRun, error)
-}
 
 // AgentType defines different agent architectures
 type AgentType string
@@ -75,20 +69,31 @@ type ExecutionConfig struct {
 	EnableTools    bool
 	AvailableTools []string
 	Stream         bool
+	TokenCallback  func(string) // called per token when streaming; implies Stream=true
+	TenantID       string
+	LLMAPIKeys     map[string]string
+	RAGSearchFn    func(ctx context.Context, workspaces []string, query string, topK int) (string, error)
+	ExtraTools     []capgateway.ToolDefinition
+	ConversationID string
+	UserID         string
+	HistoryWindow  int
 }
 
 // AgentConfig holds agent configuration
 type AgentConfig struct {
-	ID            string
-	Name          string
-	Type          AgentType
-	Description   string
-	Persona       string
-	SystemPrompt  string
-	LLMModel      string
-	MaxIterations int
-	AllowedSkills []string
-	Capabilities  []AgentCapability
+	ID                      string
+	Name                    string
+	Type                    AgentType
+	Description             string
+	Persona                 string
+	SystemPrompt            string
+	LLMModel                string
+	MaxIterations           int
+	AllowedSkills           []string
+	MCPServerIDs            []string
+	Capabilities            []AgentCapability
+	KnowledgeWorkspaceIDs   []string
+	KnowledgeWorkspaceNames []string
 }
 
 // AgentResult represents output from an agent execution
@@ -123,8 +128,8 @@ type BaseAgent struct {
 	mu             sync.Mutex
 	MemoryManager  *memory.MemoryManager
 	SessionContext *memory.SessionContext
-	TemporalClient TemporalWorkflowStarter
 	CapGateway     capgateway.CapabilityGateway
+	ChatStore      ChatStore
 }
 
 // AgentState represents the current state of an agent
@@ -179,12 +184,18 @@ func (a *BaseAgent) SetMemoryManager(manager *memory.MemoryManager, sessionCtx *
 	a.SessionContext = sessionCtx
 }
 
-func (a *BaseAgent) SetTemporalClient(c TemporalWorkflowStarter) {
-	a.TemporalClient = c
+func (a *BaseAgent) SetCapGateway(gw capgateway.CapabilityGateway) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.CapGateway = gw
 }
 
-func (a *BaseAgent) SetCapGateway(gw capgateway.CapabilityGateway) {
-	a.CapGateway = gw
+// WithChatStore sets the chat store for conversation history persistence.
+func (a *BaseAgent) WithChatStore(cs ChatStore) *BaseAgent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ChatStore = cs
+	return a
 }
 
 // GetConfig implements Agent interface
@@ -207,7 +218,8 @@ func (a *BaseAgent) GetMemory() []Message {
 	return a.Memory
 }
 
-// AddToMemory adds a message to the agent's memory
+// AddToMemory adds a message to the in-process memory slice.
+// Long-term indexing via MemoryManager is handled asynchronously in Execute().
 func (a *BaseAgent) AddToMemory(msg Message) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -215,23 +227,6 @@ func (a *BaseAgent) AddToMemory(msg Message) {
 	a.Memory = append(a.Memory, msg)
 	if len(a.Memory) > 100 {
 		a.Memory = a.Memory[len(a.Memory)-100:]
-	}
-
-	// Also add to memory manager if available
-	if a.MemoryManager != nil && a.SessionContext != nil {
-		entry := &memory.MemoryEntry{
-			Role:      msg.Role,
-			Content:   msg.Content,
-			TenantID:  a.SessionContext.TenantID,
-			UserID:    a.SessionContext.UserID,
-			SessionID: a.SessionContext.SessionID,
-			AgentID:   a.SessionContext.AgentID,
-			Metadata:  msg.Metadata,
-		}
-		ctx := context.Background()
-		if err := a.MemoryManager.Add(ctx, entry); err != nil {
-			a.Logger.Warn("failed to add to memory manager", zap.Error(err))
-		}
 	}
 }
 
@@ -252,67 +247,129 @@ func (a *BaseAgent) RetrieveMemory(ctx context.Context, query string, limit int)
 
 // Execute implements the Agent interface - base implementation with ReAct pattern
 func (a *BaseAgent) Execute(ctx context.Context, input string, options ...ExecutionOption) (*AgentResult, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	startTime := time.Now()
 
 	cfg := &ExecutionConfig{}
 	cfg.ApplyOptions(options)
 
+	// Snapshot mutable fields under lock, then release before the long LLM call.
+	a.mu.Lock()
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = a.MaxIterations
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = 120 * time.Second
 	}
+	agentID := a.ID
+	agentType := a.Type
+	systemPrompt := a.SystemPrompt
+	llmModel := a.LLMModel
+	capGW := a.CapGateway
+	chatStore := a.ChatStore
+	metrics := a.metrics
+	workspaceNames := a.KnowledgeWorkspaceNames
+	a.mu.Unlock()
 
 	a.Logger.Info("agent execution started",
-		zap.String("agent_id", a.ID),
-		zap.String("type", string(a.Type)),
+		zap.String("agent_id", agentID),
+		zap.String("type", string(agentType)),
 		zap.String("input", input))
 
 	result := &AgentResult{
-		AgentID:  a.ID,
+		AgentID:  agentID,
 		Input:    input,
 		Metadata: map[string]interface{}{},
 	}
 
+	// Load short-term conversation history from ChatStore (single source of truth).
+	var history []*ChatMessage
+	if chatStore != nil && cfg.ConversationID != "" {
+		if msgs, err := chatStore.ListMessages(ctx, cfg.TenantID, cfg.ConversationID, cfg.UserID); err != nil {
+			a.Logger.Warn("agent: failed to load conversation history",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		} else {
+			history = msgs
+		}
+	}
+
 	var execErr error
-	switch a.Type {
+	switch agentType {
 	case ReActAgent:
-		if a.TemporalClient == nil {
-			execErr = fmt.Errorf("react: TemporalClient not set")
+		if capGW == nil {
+			execErr = fmt.Errorf("react: CapGateway not set")
 			break
 		}
-		wfReq := agentworkflow.ReActRequest{
-			TenantID: a.ID,
-			AgentID:  a.ID,
-			Input:    input,
-			AgentCfg: agentworkflow.AgentWorkflowConfig{
-				ID:            a.ID,
-				Name:          a.Name,
-				LLMModel:      a.LLMModel,
-				SystemPrompt:  a.SystemPrompt,
-				MaxIterations: a.MaxIterations,
-			},
-		}
-		wfOpts := temporalclient.StartWorkflowOptions{
-			ID:        fmt.Sprintf("react-%s-%d", a.ID, time.Now().UnixNano()),
-			TaskQueue: agentworkflow.TaskQueue,
-		}
-		run, err := a.TemporalClient.ExecuteWorkflow(ctx, wfOpts, agentworkflow.ReActWorkflow, wfReq)
-		if err != nil {
-			execErr = fmt.Errorf("react: start workflow: %w", err)
+		cg, buildErr := agentgraph.BuildReActGraph(capGW, a.Logger)
+		if buildErr != nil {
+			execErr = fmt.Errorf("react: build graph: %w", buildErr)
 			break
 		}
-		var wfResult *agentworkflow.ReActResult
-		if err := run.Get(ctx, &wfResult); err != nil {
-			execErr = fmt.Errorf("react: workflow: %w", err)
+		initMessages := BuildInitMessages(systemPrompt, history, cfg.HistoryWindow)
+		initMessages = append(initMessages, capgateway.LLMMessage{Role: "user", Content: input})
+
+		var availableTools []capgateway.ToolDefinition
+		if len(workspaceNames) > 0 && cfg.RAGSearchFn != nil {
+			enumVals := make([]interface{}, len(workspaceNames))
+			for i, n := range workspaceNames {
+				enumVals[i] = n
+			}
+			availableTools = append(availableTools, capgateway.ToolDefinition{
+				Name:        "search_knowledge",
+				Description: "Search one or more knowledge bases for relevant information. Pass all relevant workspaces to search simultaneously.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"workspaces": map[string]interface{}{
+							"type":        "array",
+							"description": "Knowledge workspaces to search (one or more)",
+							"items": map[string]interface{}{
+								"type": "string",
+								"enum": enumVals,
+							},
+							"minItems": 1,
+						},
+						"query": map[string]interface{}{
+							"type":        "string",
+							"description": "Search query",
+						},
+						"top_k": map[string]interface{}{
+							"type":        "integer",
+							"description": "Number of results per workspace (1-20, default 5)",
+						},
+					},
+					"required": []string{"workspaces", "query"},
+				},
+			})
+		}
+		initState := agentgraph.ReActState{
+			TenantID:       cfg.TenantID,
+			LLMAPIKeys:     cfg.LLMAPIKeys,
+			Model:          llmModel,
+			Messages:       initMessages,
+			OnToken:        cfg.TokenCallback,
+			AvailableTools: append(availableTools, cfg.ExtraTools...),
+			RAGSearchFn:    cfg.RAGSearchFn,
+		}
+		execCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+		finalState, runErr := cg.Invoke(execCtx, initState, agentgraph.RunConfig{MaxSteps: cfg.MaxSteps})
+		if runErr != nil {
+			execErr = fmt.Errorf("react: %w", runErr)
 			break
 		}
-		result.Output = wfResult.Output
-		result.Steps = wfResult.Steps
+		result.Output = finalState.Output
+		result.Steps = finalState.Steps
+		result.TokensUsed = finalState.TotalTokens
+		a.mu.Lock()
+		a.State.StepsTaken = finalState.Steps
+		a.mu.Unlock()
+		for _, tc := range finalState.AllToolCalls {
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
+				ToolName: tc.Name,
+				Input:    tc.Arguments,
+			})
+		}
 
 	case CoTAgent:
 		for i := 0; i < cfg.MaxSteps; i++ {
@@ -322,7 +379,9 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 				Thought:     "Considering possible responses",
 			}
 			result.Thoughts = append(result.Thoughts, thought)
+			a.mu.Lock()
 			a.State.StepsTaken++
+			a.mu.Unlock()
 
 			if i >= 2 {
 				result.Output = fmt.Sprintf("Response for: %s", input)
@@ -331,24 +390,95 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 		}
 
 	case PlanningAgent, ToolCallingAgent, RAGAgent, SwarmAgent:
-		result.Output = fmt.Sprintf("%s agent type not yet implemented", string(a.Type))
-		execErr = fmt.Errorf("agent type %s not implemented", a.Type)
+		result.Output = fmt.Sprintf("%s agent type not yet implemented", string(agentType))
+		execErr = fmt.Errorf("agent type %s not implemented", agentType)
 
 	default:
 		result.Output = "Unknown agent type"
-		execErr = fmt.Errorf("unknown agent type: %s", a.Type)
+		execErr = fmt.Errorf("unknown agent type: %s", agentType)
+	}
+
+	// Persist user input and agent output to ChatStore (outside switch — all agent types benefit).
+	if chatStore != nil && cfg.ConversationID != "" && execErr == nil {
+		saveCtx := ctx
+		userMsg := &ChatMessage{
+			ConversationID: cfg.ConversationID,
+			Role:           "user",
+			Content:        input,
+		}
+		if err := chatStore.AddMessage(saveCtx, cfg.TenantID, userMsg); err != nil {
+			a.Logger.Warn("agent: failed to save user message",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		}
+		agentMsg := &ChatMessage{
+			ConversationID: cfg.ConversationID,
+			Role:           "agent",
+			Content:        result.Output,
+		}
+		if err := chatStore.AddMessage(saveCtx, cfg.TenantID, agentMsg); err != nil {
+			a.Logger.Warn("agent: failed to save agent message",
+				zap.String("conversation_id", cfg.ConversationID),
+				zap.Error(err))
+		}
+	}
+
+	// Async long-term indexing: fire-and-forget, does not block the caller.
+	if a.MemoryManager != nil && a.SessionContext != nil && execErr == nil {
+		memMgr := a.MemoryManager
+		sessCtx := a.SessionContext
+		capturedInput := input
+		capturedOutput := result.Output
+		capturedAgentID := agentID
+		// WithoutCancel detaches from request cancellation so indexing survives
+		// the HTTP response, while still carrying trace/tenant context values.
+		detachedCtx := context.WithoutCancel(ctx)
+		go func() {
+			idxCtx, cancel := context.WithTimeout(detachedCtx, 10*time.Second)
+			defer cancel()
+			userEntry := &memory.MemoryEntry{
+				Role:      "user",
+				Content:   capturedInput,
+				TenantID:  sessCtx.TenantID,
+				UserID:    sessCtx.UserID,
+				SessionID: sessCtx.SessionID,
+				AgentID:   sessCtx.AgentID,
+			}
+			if err := memMgr.Add(idxCtx, userEntry); err != nil {
+				a.Logger.Warn("agent: long-term indexing failed for user turn",
+					zap.String("agent_id", capturedAgentID),
+					zap.Error(err))
+			}
+			if capturedOutput != "" {
+				agentEntry := &memory.MemoryEntry{
+					Role:      "assistant",
+					Content:   capturedOutput,
+					TenantID:  sessCtx.TenantID,
+					UserID:    sessCtx.UserID,
+					SessionID: sessCtx.SessionID,
+					AgentID:   sessCtx.AgentID,
+				}
+				if err := memMgr.Add(idxCtx, agentEntry); err != nil {
+					a.Logger.Warn("agent: long-term indexing failed for agent turn",
+						zap.String("agent_id", capturedAgentID),
+						zap.Error(err))
+				}
+			}
+		}()
 	}
 
 	result.Duration = time.Since(startTime)
+	a.mu.Lock()
 	result.Steps = a.State.StepsTaken
+	a.mu.Unlock()
 
 	status := "success"
 	if execErr != nil {
 		status = "error"
 	}
-	a.metrics.IncAgentExecution(a.ID, string(a.Type), status)
-	a.metrics.RecordAgentExecutionDuration(a.ID, string(a.Type), result.Duration.Seconds())
-	a.metrics.RecordAgentStepCount(a.ID, string(a.Type), result.Steps)
+	metrics.IncAgentExecution(agentID, string(agentType), status)
+	metrics.RecordAgentExecutionDuration(agentID, string(agentType), result.Duration.Seconds())
+	metrics.RecordAgentStepCount(agentID, string(agentType), result.Steps)
 
 	return result, execErr
 }
@@ -399,9 +529,92 @@ func WithStream(enable bool) ExecutionOption {
 	}
 }
 
+// WithTokenCallback sets a per-token callback, enabling streaming automatically.
+func WithTokenCallback(cb func(string)) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.TokenCallback = cb
+		cfg.Stream = true
+	}
+}
+
+// WithTenantID sets the tenant ID for the execution context.
+func WithTenantID(id string) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.TenantID = id
+	}
+}
+
+// WithLLMAPIKeys injects per-tenant decrypted LLM API keys into the execution.
+func WithLLMAPIKeys(keys map[string]string) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.LLMAPIKeys = keys
+	}
+}
+
+// WithRAGSearchFn injects a knowledge-base search function for the search_knowledge tool.
+func WithRAGSearchFn(fn func(ctx context.Context, workspaces []string, query string, topK int) (string, error)) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.RAGSearchFn = fn
+	}
+}
+
+// WithExtraTools appends extra tool definitions (from MCP servers and allowed skills) to AvailableTools.
+func WithExtraTools(tools []capgateway.ToolDefinition) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.ExtraTools = tools
+	}
+}
+
+// WithConversationID sets the conversation ID for multi-turn history loading.
+func WithConversationID(id string) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.ConversationID = id
+	}
+}
+
+// WithUserID sets the user ID for conversation history access control.
+func WithUserID(id string) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		cfg.UserID = id
+	}
+}
+
+// WithHistoryWindow sets the max number of history messages to load. n≤0 uses default (20).
+func WithHistoryWindow(n int) ExecutionOption {
+	return func(cfg *ExecutionConfig) {
+		if n > 0 {
+			cfg.HistoryWindow = n
+		}
+	}
+}
+
 // ApplyOptions applies options to the execution config
 func (cfg *ExecutionConfig) ApplyOptions(opts []ExecutionOption) {
 	for _, opt := range opts {
 		opt(cfg)
 	}
+}
+
+// BuildInitMessages constructs the initial LLM message slice from a system prompt and
+// chat history. History is truncated to the most recent window messages; role "agent"
+// is normalized to "assistant" for LLM protocol. window ≤ 0 defaults to 20.
+func BuildInitMessages(systemPrompt string, history []*ChatMessage, window int) []capgateway.LLMMessage {
+	if window <= 0 {
+		window = 20
+	}
+	if len(history) > window {
+		history = history[len(history)-window:]
+	}
+	msgs := make([]capgateway.LLMMessage, 0, len(history)+1)
+	if systemPrompt != "" {
+		msgs = append(msgs, capgateway.LLMMessage{Role: "system", Content: systemPrompt})
+	}
+	for _, m := range history {
+		role := m.Role
+		if role == "agent" {
+			role = "assistant"
+		}
+		msgs = append(msgs, capgateway.LLMMessage{Role: role, Content: m.Content})
+	}
+	return msgs
 }

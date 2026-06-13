@@ -236,7 +236,7 @@ type ConversationWindowMemory struct {
 func NewConversationWindowMemory(config *MemoryConfig, logger *zap.Logger) *ConversationWindowMemory {
 	windowSize := config.ShortTermWindowSize
 	if windowSize <= 0 {
-		windowSize = 10 // Default window size
+		windowSize = DefaultWindowSize
 	}
 	return &ConversationWindowMemory{
 		ConversationBufferMemory: NewConversationBufferMemory(config, logger),

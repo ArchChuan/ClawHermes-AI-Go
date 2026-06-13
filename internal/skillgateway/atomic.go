@@ -52,6 +52,7 @@ const (
 	defaultTimeout   = 30 * time.Second
 	maxRetryDelay    = 10 * time.Second
 	maxRetryAttempts = 10
+	retryBaseDelay   = 100 * time.Millisecond
 )
 
 func (e *atomicEngine) execute(ctx context.Context, req SkillRequest) (SkillResponse, error) {
@@ -95,7 +96,7 @@ func (e *atomicEngine) execute(ctx context.Context, req SkillRequest) (SkillResp
 	}
 	baseDelay := req.Retry.BaseDelay
 	if baseDelay <= 0 {
-		baseDelay = 100 * time.Millisecond
+		baseDelay = retryBaseDelay
 	}
 
 	start := time.Now()

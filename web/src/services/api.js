@@ -1,11 +1,12 @@
 import axios from 'axios';
 import { message } from 'antd';
+import { API_DEFAULT_TIMEOUT_MS, AGENT_EXEC_TIMEOUT_MS, DEFAULT_PAGE_SIZE } from '../constants';
 
 // Dev: Vite proxy forwards /auth /health /skills etc. to :8080, same-origin so cookies work.
 // Prod: set VITE_API_BASE_URL to backend origin, or leave empty when co-hosted.
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
-  timeout: 10000,
+  timeout: API_DEFAULT_TIMEOUT_MS,
   withCredentials: true,
 });
 
@@ -140,9 +141,73 @@ export const getAllAgents = () => api.get('/agents');
 export const getAgentById = (id) => api.get(`/agents/${id}`);
 export const createAgent = (data) => api.post('/agents', data);
 export const updateAgent = (id, data) => api.put(`/agents/${id}`, data);
-export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task);
+export const executeAgent = (id, task) => api.post(`/agents/${id}/execute`, task, { timeout: AGENT_EXEC_TIMEOUT_MS });
+
+/**
+ * executeAgentStream — SSE streaming variant.
+ * Calls onToken(string) for each token chunk, onDone(result) when complete,
+ * onError(err) on failure. Returns an AbortController so caller can cancel.
+ */
+export const executeAgentStream = (id, task, { onToken, onDone, onError }) => {
+  const ctrl = new AbortController();
+  const token = _tokenRef.current || localStorage.getItem('access_token');
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+
+  fetch(`${base}/agents/${id}/execute/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: 'include',
+    body: JSON.stringify(task),
+    signal: ctrl.signal,
+  })
+    .then((res) => {
+      if (!res.ok) {
+        return res.json().then((d) => { throw new Error(d.message || d.error || `HTTP ${res.status}`); });
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      const pump = () =>
+        reader.read().then(({ done, value }) => {
+          if (done) return;
+          buf += decoder.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop();
+          parts.forEach((part) => {
+            const line = part.trim();
+            if (!line.startsWith('data:')) return;
+            const json = line.slice(5).trim();
+            try {
+              const evt = JSON.parse(json);
+              if (evt.error) {
+                onError && onError(new Error(evt.error));
+              } else if (evt.done) {
+                onDone && onDone(evt);
+              } else if (evt.token != null) {
+                onToken && onToken(evt.token);
+              }
+            } catch (_) { /* malformed chunk, skip */ }
+          });
+          return pump();
+        });
+
+      return pump();
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError') {
+        onError && onError(err);
+      }
+    });
+
+  return ctrl;
+};
 export const deleteAgent = (id) => api.delete(`/agents/${id}`);
-export const getAgentExecutions = () => api.get('/agents/executions');
+export const getAgentExecutions = (page = 1, pageSize = DEFAULT_PAGE_SIZE) =>
+  api.get('/agents/executions', { params: { page, page_size: pageSize } });
 export const getAvailableModels = () => api.get('/models');
 
 // Knowledge
@@ -176,5 +241,14 @@ export const deleteWorkspace = (name) => api.delete(`/knowledge/workspaces/${nam
 export const ingestDocument = (formData) =>
   api.post('/knowledge/ingest', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 export const queryKnowledge = (data) => api.post('/knowledge/query', data);
+
+// Chat Conversations
+export const listConversations = (agentId) => api.get(`/agents/${agentId}/conversations`);
+export const createConversation = (agentId, name) => api.post(`/agents/${agentId}/conversations`, { name });
+export const renameConversation = (convId, name) => api.patch(`/conversations/${convId}`, { name });
+export const deleteConversation = (convId) => api.delete(`/conversations/${convId}`);
+export const listMessages = (convId) => api.get(`/conversations/${convId}/messages`);
+export const addMessage = (convId, role, content) =>
+  api.post(`/conversations/${convId}/messages`, { role, content });
 
 export default api;

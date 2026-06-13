@@ -12,7 +12,6 @@ import (
 
 // MCPSkillWrapper 将 MCP 工具包装为 Skill
 type MCPSkillWrapper struct {
-	ctx         context.Context
 	ID          string
 	Name        string
 	Description string
@@ -44,8 +43,7 @@ func (w *MCPSkillWrapper) GetType() string {
 }
 
 // Execute 执行工具
-func (w *MCPSkillWrapper) Execute(input any) (any, error) {
-	ctx := w.ctx
+func (w *MCPSkillWrapper) Execute(ctx context.Context, input any) (any, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -95,7 +93,6 @@ func (a *MCPSkillAdapter) DiscoverSkills(ctx context.Context) ([]*MCPSkillWrappe
 		skillID := fmt.Sprintf("mcp:%s:%s", a.serverID, tool.Name)
 
 		wrapper := &MCPSkillWrapper{
-			ctx:         ctx,
 			ID:          skillID,
 			Name:        tool.Name,
 			Description: tool.Description,
@@ -112,6 +109,14 @@ func (a *MCPSkillAdapter) DiscoverSkills(ctx context.Context) ([]*MCPSkillWrappe
 
 	a.logger.Info("discovered MCP skills", zap.Int("count", len(skills)))
 	return skills, nil
+}
+
+// AddSkillForTest injects a wrapper directly into the adapter without MCP discovery.
+// Intended for unit tests only.
+func (a *MCPSkillAdapter) AddSkillForTest(w *MCPSkillWrapper) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.skills[w.ID] = w
 }
 
 // GetSkill 获取 Skill
@@ -143,6 +148,21 @@ type MCPSkillRegistry struct {
 	manager  *ClientManager
 	mu       sync.RWMutex
 	logger   *zap.Logger
+}
+
+// GetAdapterForServer returns the adapter for a specific server, or nil if not registered.
+func (r *MCPSkillRegistry) GetAdapterForServer(serverID string) *MCPSkillAdapter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.adapters[serverID]
+}
+
+// RegisterAdapterForTest injects a pre-built adapter directly, bypassing DiscoverSkills.
+// Intended for unit tests only.
+func (r *MCPSkillRegistry) RegisterAdapterForTest(serverID string, adapter *MCPSkillAdapter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.adapters[serverID] = adapter
 }
 
 // NewMCPSkillRegistry 创建新的注册表
@@ -225,7 +245,7 @@ func (r *MCPSkillRegistry) ExecuteSkill(skillID string, input any) (any, error) 
 	}
 
 	if executor, ok := s.(skill.SkillExecutor); ok {
-		return executor.Execute(input)
+		return executor.Execute(context.Background(), input)
 	}
 
 	return nil, fmt.Errorf("skill is not executable: %s", skillID)

@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestCodeSkillCreation(t *testing.T) {
 func TestLLMSkillCreation(t *testing.T) {
 	logger := zap.NewNop()
 	gateway := llmgateway.NewGateway()
-	ls := NewLLMSkill("llm-1", "Test LLM Skill", "A test LLM skill", gateway, logger)
+	ls := NewLLMSkill("llm-1", "Test LLM Skill", "A test LLM skill", "", "", 0, 0, gateway, logger)
 
 	if ls.GetID() != "llm-1" {
 		t.Errorf("expected ID llm-1, got %s", ls.GetID())
@@ -121,7 +122,7 @@ func TestExecutorNotFound(t *testing.T) {
 func TestCodeSkillExecute(t *testing.T) {
 	cs := NewCodeSkill("test-1", "Test", "Test", "code", "python")
 
-	output, err := cs.Execute(map[string]interface{}{"key": "value"})
+	output, err := cs.Execute(context.Background(), map[string]interface{}{"key": "value"})
 	if err != nil {
 		t.Errorf("Execute() failed: %v", err)
 	}
@@ -134,9 +135,9 @@ func TestCodeSkillExecute(t *testing.T) {
 func TestLLMSkillExecute(t *testing.T) {
 	logger := zap.NewNop()
 	gateway := llmgateway.NewGateway()
-	ls := NewLLMSkill("llm-1", "Test", "Test", gateway, logger)
+	ls := NewLLMSkill("llm-1", "Test", "Test", "", "", 0, 0, gateway, logger)
 
-	output, err := ls.Execute(map[string]interface{}{"prompt": "test"})
+	output, err := ls.Execute(context.Background(), map[string]interface{}{"prompt": "test"})
 	if err != nil {
 		t.Logf("LLMSkill.Execute() error (expected in test env): %v", err)
 	}
@@ -184,7 +185,7 @@ type slowSkill struct {
 	*BaseSkill
 }
 
-func (s *slowSkill) Execute(input interface{}) (interface{}, error) {
+func (s *slowSkill) Execute(_ context.Context, input interface{}) (interface{}, error) {
 	time.Sleep(1 * time.Second)
 	return nil, nil
 }

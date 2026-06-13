@@ -1,304 +1,207 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { Button, Select, Input, Space, Tag, Typography, Tooltip, Spin, Empty, Skeleton, Popconfirm } from 'antd';
 import {
-  Card,
-  Typography,
-  Input,
-  Button,
-  List,
-  Select,
-  Space,
-  Alert,
-  Spin,
-  Tag
-} from 'antd';
-import { SendOutlined, LoadingOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
-import { getAllAgents, executeAgent } from '../services/api';
+  SendOutlined, RobotOutlined, UserOutlined, PlusOutlined,
+  EditOutlined, DeleteOutlined, ThunderboltOutlined, CheckOutlined,
+} from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { useChatPage } from '../hooks/useChatPage';
 
-const { Title, Text } = Typography;
+const { Text, Title } = Typography;
 const { TextArea } = Input;
-const { Option } = Select;
 
-const AgentChatPage = () => {
-  const [agents, setAgents] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [agentDetails, setAgentDetails] = useState(null);
-  const messagesEndRef = useRef(null);
+const BUBBLE = {
+  user:  { maxWidth: '72%', padding: '10px 16px', borderRadius: '18px 18px 4px 18px', background: '#1677ff', color: '#fff', alignSelf: 'flex-end', fontSize: 14, lineHeight: 1.6 },
+  agent: { maxWidth: '72%', padding: '10px 16px', borderRadius: '18px 18px 18px 4px', background: '#fff', border: '1px solid #f0f0f0', alignSelf: 'flex-start', fontSize: 14, lineHeight: 1.6 },
+  error: { maxWidth: '72%', padding: '10px 16px', borderRadius: '18px 18px 18px 4px', background: '#fff2f0', border: '1px solid #ffccc7', alignSelf: 'flex-start', fontSize: 14, lineHeight: 1.6 },
+};
 
-  useEffect(() => {
-    loadAgents();
-  }, []);
+const mdComponents = {
+  p: ({ children }) => <p style={{ margin: '0 0 6px', lineHeight: 1.7, wordBreak: 'break-word' }}>{children}</p>,
+  code: ({ inline, children }) => inline
+    ? <code style={{ background: '#f5f5f5', border: '1px solid #e8e8e8', borderRadius: 3, padding: '1px 5px', fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{children}</code>
+    : <pre style={{ background: '#1a1a1a', color: '#e8e8e8', borderRadius: 6, padding: '10px 14px', overflowX: 'auto', fontSize: 12, lineHeight: 1.6, fontFamily: 'JetBrains Mono, monospace', margin: '6px 0' }}><code>{children}</code></pre>,
+  ul: ({ children }) => <ul style={{ paddingInlineStart: 20, margin: '4px 0' }}>{children}</ul>,
+  ol: ({ children }) => <ol style={{ paddingInlineStart: 20, margin: '4px 0' }}>{children}</ol>,
+  li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+  blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #d9d9d9', paddingLeft: 12, margin: '6px 0', color: '#595959' }}>{children}</blockquote>,
+  a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{children}</a>,
+  strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+  h1: ({ children }) => <h1 style={{ fontSize: 18, fontWeight: 600, margin: '8px 0 4px' }}>{children}</h1>,
+  h2: ({ children }) => <h2 style={{ fontSize: 16, fontWeight: 600, margin: '8px 0 4px' }}>{children}</h2>,
+  h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, margin: '6px 0 4px' }}>{children}</h3>,
+  table: ({ children }) => <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13, margin: '6px 0' }}>{children}</table>,
+  th: ({ children }) => <th style={{ border: '1px solid #e8e8e8', padding: '4px 10px', background: '#fafafa', fontWeight: 600, textAlign: 'left' }}>{children}</th>,
+  td: ({ children }) => <td style={{ border: '1px solid #e8e8e8', padding: '4px 10px' }}>{children}</td>,
+};
 
-  useEffect(() => {
-    // 当选择代理时，获取代理详情
-    if (selectedAgent) {
-      const agentDetail = agents.find(a => a.id === selectedAgent);
-      setAgentDetails(agentDetail);
-    }
-  }, [selectedAgent, agents]);
+const StepList = ({ steps }) => !steps?.length ? null : (
+  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #f0f0f0', fontSize: 12, color: '#595959' }}>
+    <b style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>执行步骤</b>
+    <ol style={{ margin: '4px 0 0', paddingInlineStart: 20 }}>
+      {steps.map((s, i) => (
+        <li key={i}><b>步骤 {s.iteration}</b>：{s.action}{s.tool && <Tag style={{ marginLeft: 4, fontSize: 10 }}>{s.tool}</Tag>}</li>
+      ))}
+    </ol>
+  </div>
+);
 
-  const loadAgents = async () => {
-    try {
-      const response = await getAllAgents();
-      setAgents(response.data.agents || []);
-    } catch (err) {
-      setError('加载智能代理失败: ' + err.message);
-    }
+export default function AgentChatPage() {
+  const {
+    agents, selectedAgent, setSelectedAgent,
+    conversations, loadingConvs, selectedConv, setSelectedConv,
+    messages, loadingMsgs, sending, input, setInput, bottomRef,
+    handleSend, handleCreateConv, handleRenameConv, handleDeleteConv,
+  } = useChatPage();
+
+  const [editingId, setEditingId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+
+  const agentObj = agents.find(a => a.id === selectedAgent);
+
+  const commitRename = async (convId) => {
+    const name = editingName.trim();
+    if (name) await handleRenameConv(convId, name);
+    setEditingId(null);
   };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || !selectedAgent) {
-      return;
-    }
-
-    // 添加用户消息
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: inputMessage,
-      timestamp: new Date().toLocaleTimeString()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setLoading(true);
-    setError('');
-
-    try {
-      // 执行Agent
-      const task = {
-        query: inputMessage,
-        context: {},
-        variables: {}
-      };
-
-      const response = await executeAgent(selectedAgent, task);
-
-      // 添加Agent响应
-      const agentMessage = {
-        id: Date.now() + 1,
-        type: 'agent',
-        content: typeof response.data.result === 'string'
-          ? response.data.result
-          : JSON.stringify(response.data.result, null, 2),
-        timestamp: new Date().toLocaleTimeString(),
-        steps: response.data.steps || [],
-        status: response.data.status
-      };
-
-      setMessages(prev => [...prev, agentMessage]);
-    } catch (err) {
-      const errorMessage = {
-        id: Date.now() + 1,
-        type: 'agent',
-        content: `执行出错: ${err.message}`,
-        timestamp: new Date().toLocaleTimeString(),
-        isError: true
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const agentOptions = agents.map(agent => (
-    <Option key={agent.id} value={agent.id}>
-      {agent.name}
-    </Option>
-  ));
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-      <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
-        智能代理对话
-      </Title>
-
-      {error && (
-        <Alert
-          message="错误"
-          description={error}
-          type="error"
-          closable
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      <Card style={{ marginBottom: 16 }}>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <div>
-            <Text strong style={{ marginRight: 8 }}>选择智能代理:</Text>
-            <Select
-              style={{ width: 300 }}
-              placeholder="请选择一个智能代理"
-              value={selectedAgent}
-              onChange={setSelectedAgent}
-              loading={agents.length === 0}
+    <div style={{ display: 'flex', height: 'calc(100vh - 56px - 48px)', background: '#f5f5f5' }}>
+      {/* Sidebar */}
+      <div style={{ width: 220, background: '#fff', borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ padding: '16px 12px 12px' }}>
+          <Title level={5} style={{ margin: '0 0 10px', fontSize: 14 }}>Agent 对话</Title>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="选择 Agent"
+            value={selectedAgent}
+            onChange={setSelectedAgent}
+            options={agents.map(a => ({ value: a.id, label: a.name }))}
+            size="small"
+          />
+        </div>
+        <div style={{ padding: '0 12px 8px' }}>
+          <Button icon={<PlusOutlined />} size="small" block onClick={handleCreateConv} disabled={!selectedAgent}>
+            新建会话
+          </Button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px' }}>
+          {loadingConvs ? <Skeleton active paragraph={{ rows: 4 }} style={{ padding: 8 }} /> : conversations.map(c => (
+            <div
+              key={c.id}
+              onClick={() => setSelectedConv(c.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
+                borderRadius: 6, cursor: 'pointer', marginBottom: 2,
+                background: c.id === selectedConv ? '#e6f4ff' : 'transparent',
+              }}
             >
-              {agentOptions}
-            </Select>
-
-            {agentDetails && (
-              <div style={{ marginTop: 10, padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
-                <Text strong>{agentDetails.name}</Text>
-                <div style={{ marginTop: 5 }}>
-                  <Tag color="blue">模型: {agentDetails.llmModel}</Tag>
-                  <Tag color="green">最大迭代: {agentDetails.maxIterations}</Tag>
-                  <Tag color="orange">技能数: {agentDetails.allowedSkills.length}</Tag>
-                </div>
-                <div style={{ marginTop: 5, fontSize: '13px', color: '#666' }}>
-                  {agentDetails.description}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {!selectedAgent && agents.length > 0 && (
-            <Alert
-              message="提示"
-              description="请先从下拉菜单中选择一个智能代理"
-              type="info"
-              showIcon
-            />
+              {editingId === c.id ? (
+                <Input
+                  size="small"
+                  autoFocus
+                  value={editingName}
+                  onChange={e => setEditingName(e.target.value)}
+                  onPressEnter={() => commitRename(c.id)}
+                  onBlur={() => commitRename(c.id)}
+                  style={{ flex: 1, fontSize: 12 }}
+                />
+              ) : (
+                <Text ellipsis style={{ flex: 1, fontSize: 13, color: c.id === selectedConv ? '#1677ff' : undefined }}>{c.name}</Text>
+              )}
+              {c.id === selectedConv && editingId !== c.id && (
+                <Space size={2}>
+                  <Tooltip title="重命名">
+                    <Button type="text" size="small" icon={<EditOutlined style={{ fontSize: 11 }} />}
+                      onClick={e => { e.stopPropagation(); setEditingId(c.id); setEditingName(c.name); }} />
+                  </Tooltip>
+                  <Popconfirm title="删除此会话？" okText="删除" cancelText="取消" okType="danger"
+                    onConfirm={e => { e?.stopPropagation(); handleDeleteConv(c.id); }}
+                    onCancel={e => e?.stopPropagation()}>
+                    <Button type="text" size="small" danger icon={<DeleteOutlined style={{ fontSize: 11 }} />}
+                      onClick={e => e.stopPropagation()} />
+                  </Popconfirm>
+                </Space>
+              )}
+              {editingId === c.id && (
+                <Button type="text" size="small" icon={<CheckOutlined style={{ fontSize: 11, color: '#52c41a' }} />}
+                  onClick={() => commitRename(c.id)} />
+              )}
+            </div>
+          ))}
+          {!loadingConvs && conversations.length === 0 && selectedAgent && (
+            <Text type="secondary" style={{ fontSize: 12, padding: '8px', display: 'block', textAlign: 'center' }}>暂无会话</Text>
           )}
-        </Space>
-      </Card>
+        </div>
+      </div>
 
-      <Card
-        style={{
-          height: 500,
-          overflowY: 'auto',
-          marginBottom: 16,
-          display: 'flex',
-          flexDirection: 'column'
-        }}
-      >
-        {messages.length === 0 ? (
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            color: '#aaa'
-          }}>
-            <div style={{ textAlign: 'center' }}>
-              <RobotOutlined style={{ fontSize: '48px', marginBottom: '16px', color: '#1890ff' }} />
-              <Text>选择一个智能代理并开始对话...</Text>
-              <div style={{ marginTop: '16px', fontSize: '13px', color: '#888' }}>
-                您可以直接输入命令或问题，智能代理将为您处理
+      {/* Right panel */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Agent info strip */}
+        <div style={{ height: 48, background: '#fff', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 10, flexShrink: 0 }}>
+          <RobotOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+          <Text strong style={{ fontSize: 15 }}>{agentObj?.name || '请选择 Agent'}</Text>
+          {agentObj?.model && <Tag color="blue" style={{ fontSize: 11 }}>{agentObj.model}</Tag>}
+          {agentObj?.description && <Text type="secondary" style={{ fontSize: 12 }} ellipsis>{agentObj.description}</Text>}
+        </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {!selectedConv && !loadingMsgs && (
+            <Empty description={selectedAgent ? '新建或选择一个会话' : '请先选择 Agent'} style={{ marginTop: 80 }} />
+          )}
+          {loadingMsgs && <Skeleton active paragraph={{ rows: 6 }} />}
+          {!loadingMsgs && messages.map(m => (
+            <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                {m.role !== 'user' && (m.role === 'agent' ? <RobotOutlined style={{ color: '#1677ff' }} /> : <ThunderboltOutlined style={{ color: '#ff4d4f' }} />)}
+                <Text type="secondary" style={{ fontSize: 11 }}>{m.role === 'user' ? '你' : m.role === 'agent' ? 'Agent' : '错误'}</Text>
+                {m.role === 'user' && <UserOutlined style={{ color: '#8c8c8c' }} />}
+              </div>
+              <div style={BUBBLE[m.role] || BUBBLE.agent}>
+                {m.role === 'user'
+                  ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</span>
+                  : <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown>
+                }
+                {m.role === 'agent' && <StepList steps={m.steps} />}
               </div>
             </div>
-          </div>
-        ) : (
-          <List
-            dataSource={messages}
-            renderItem={item => (
-              <List.Item
-                style={{
-                  justifyContent: item.type === 'user' ? 'flex-end' : 'flex-start',
-                  padding: '8px 0'
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: '80%',
-                    padding: '12px 16px',
-                    borderRadius: '18px',
-                    backgroundColor: item.type === 'user' ? '#e3f2fd' : '#f5f5f5',
-                    alignSelf: 'flex-start',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                  }}
-                >
-                  <div style={{ marginBottom: 4 }}>
-                    <Space size="small">
-                      {item.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                      <Text strong>
-                        {item.type === 'user' ? '您' : agents.find(a => a.id === selectedAgent)?.name || '智能代理'}
-                      </Text>
-                    </Space>
-                    <Text type="secondary" style={{ float: 'right', fontSize: '12px' }}>
-                      {item.timestamp}
-                    </Text>
-                  </div>
+          ))}
+          {sending && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start' }}>
+              <RobotOutlined style={{ color: '#1677ff' }} />
+              <Spin size="small" />
+              <Text type="secondary" style={{ fontSize: 12 }}>Agent 正在处理…</Text>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
 
-                  {item.isError ? (
-                    <Text type="danger">{item.content}</Text>
-                  ) : (
-                    <Text code={item.type === 'agent'} style={{ wordBreak: 'break-word' }}>
-                      {item.content}
-                    </Text>
-                  )}
-
-                  {item.steps && item.steps.length > 0 && (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #eee' }}>
-                      <Text type="secondary" strong>执行步骤:</Text>
-                      <ul style={{ margin: 0, paddingInlineStart: 20, fontSize: '12px' }}>
-                        {item.steps.map((step, idx) => (
-                          <li key={idx}>
-                            <strong>步骤 {step.iteration}</strong>: {step.action}
-                            {step.tool && <span> (工具: {step.tool})</span>}
-                            {step.action === 'final_response' && step.output && (
-                              <div style={{ marginTop: 4, paddingLeft: 10 }}>
-                                最终回应: {typeof step.output === 'string' ? step.output : JSON.stringify(step.output)}
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </List.Item>
-            )}
-          />
-        )}
-        <div ref={messagesEndRef} />
-      </Card>
-
-      <Card>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <TextArea
-            placeholder="输入您的问题或命令..."
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onPressEnter={handleKeyPress}
-            disabled={!selectedAgent || loading}
-            rows={4}
-          />
-          <div style={{ textAlign: 'right' }}>
-            <Text type="secondary" style={{ fontSize: '12px', marginRight: 10 }}>
-              {selectedAgent ? `正在与 ${agents.find(a => a.id === selectedAgent)?.name} 对话` : '请选择一个智能代理'}
-            </Text>
+        {/* Input */}
+        <div style={{ padding: '12px 24px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <TextArea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder={selectedConv ? '输入消息，Enter 发送，Shift+Enter 换行' : '请先选择会话'}
+              autoSize={{ minRows: 1, maxRows: 5 }}
+              disabled={!selectedConv || sending}
+              style={{ flex: 1, resize: 'none', fontSize: 14 }}
+            />
             <Button
               type="primary"
-              icon={loading ? <LoadingOutlined /> : <SendOutlined />}
-              onClick={handleSendMessage}
-              disabled={!selectedAgent || !inputMessage.trim() || loading}
+              icon={<SendOutlined />}
+              onClick={handleSend}
+              loading={sending}
+              disabled={!selectedConv || !input.trim()}
             >
               发送
             </Button>
           </div>
-        </Space>
-      </Card>
+        </div>
+      </div>
     </div>
   );
-};
-
-export default AgentChatPage;
+}

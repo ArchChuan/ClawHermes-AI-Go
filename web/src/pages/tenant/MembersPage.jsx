@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Avatar, Tag, Space, Typography, Popconfirm, Dropdown, message } from 'antd';
-import { UserAddOutlined, DownOutlined } from '@ant-design/icons';
+import {
+  Table, Button, Modal, Form, Input, Select, Avatar, Tag, Space,
+  Typography, Popconfirm, Dropdown, message, Card,
+} from 'antd';
+import { UserAddOutlined, DownOutlined, TeamOutlined } from '@ant-design/icons';
 import { getTenantMembers, inviteMember, removeMember, updateMemberRole } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
+import { DEFAULT_PAGE_SIZE } from '../../constants';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const ROLE_TAG = {
   owner: { color: 'gold', label: '超级管理员' },
@@ -73,12 +77,8 @@ const MembersPage = () => {
 
   const buildRoleMenuItems = (record) => {
     const items = [];
-    if (record.role !== 'admin') {
-      items.push({ key: 'admin', label: '设为管理员' });
-    }
-    if (record.role !== 'member') {
-      items.push({ key: 'member', label: '设为普通成员' });
-    }
+    if (record.role !== 'admin') items.push({ key: 'admin', label: '设为管理员' });
+    if (record.role !== 'member') items.push({ key: 'member', label: '设为普通成员' });
     return items;
   };
 
@@ -87,8 +87,8 @@ const MembersPage = () => {
       title: '用户', dataIndex: 'github_login',
       render: (login, record) => (
         <Space>
-          <Avatar src={record.avatar_url} size="small">{login?.[0]?.toUpperCase()}</Avatar>
-          {login}
+          <Avatar src={record.avatar_url} size={32}>{login?.[0]?.toUpperCase()}</Avatar>
+          <Text strong style={{ fontSize: 14 }}>{login}</Text>
         </Space>
       ),
     },
@@ -96,7 +96,7 @@ const MembersPage = () => {
       title: '角色', dataIndex: 'role',
       render: (role) => {
         const cfg = ROLE_TAG[role] || { color: 'default', label: role };
-        return <Tag color={cfg.color}>{cfg.label}</Tag>;
+        return <Tag color={cfg.color} style={{ borderRadius: 6 }}>{cfg.label}</Tag>;
       },
     },
     {
@@ -107,7 +107,7 @@ const MembersPage = () => {
       title: '操作', key: 'action',
       render: (_, record) => {
         const isSelf = record.user_id === user?.sub;
-        if (isSelf) return <Tag>（您）</Tag>;
+        if (isSelf) return <Tag style={{ borderRadius: 6 }}>（您）</Tag>;
         if (record.role === 'owner') return null;
 
         const canRemove = isOwner || (user?.role === 'admin' && record.role === 'member');
@@ -117,15 +117,10 @@ const MembersPage = () => {
           <Space>
             {isOwner && menuItems.length > 0 && (
               <Dropdown
-                menu={{
-                  items: menuItems,
-                  onClick: ({ key }) => handleRoleChange(record.user_id, key),
-                }}
+                menu={{ items: menuItems, onClick: ({ key }) => handleRoleChange(record.user_id, key) }}
                 trigger={['click']}
               >
-                <Button size="small">
-                  变更角色 <DownOutlined />
-                </Button>
+                <Button size="small">变更角色 <DownOutlined /></Button>
               </Dropdown>
             )}
             {canRemove && (
@@ -141,20 +136,44 @@ const MembersPage = () => {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>成员管理</Title>
-        {canInvite && <Button type="primary" icon={<UserAddOutlined />} onClick={() => setInviteOpen(true)}>邀请成员</Button>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>成员管理</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>管理团队成员及其权限</Text>
+        </div>
+        {canInvite && (
+          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setInviteOpen(true)}>
+            邀请成员
+          </Button>
+        )}
       </div>
-      <Table dataSource={members} columns={columns} rowKey="user_id" loading={loading} pagination={{ pageSize: 20 }} />
-      <Modal title="邀请成员" open={inviteOpen} onCancel={() => { setInviteOpen(false); form.resetFields(); }} footer={null}>
-        <Form form={form} layout="vertical" onFinish={handleInvite}>
+
+      <Card style={{ borderRadius: 12, border: '1px solid #f0f0f0' }} styles={{ body: { padding: 0 } }}>
+        <Table
+          dataSource={members}
+          columns={columns}
+          rowKey="user_id"
+          loading={loading}
+          pagination={{ pageSize: DEFAULT_PAGE_SIZE, showTotal: (t) => `共 ${t} 位成员` }}
+          style={{ borderRadius: 12, overflow: 'hidden' }}
+        />
+      </Card>
+
+      <Modal
+        title="邀请成员"
+        open={inviteOpen}
+        onCancel={() => { setInviteOpen(false); form.resetFields(); }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" onFinish={handleInvite} style={{ marginTop: 16 }}>
           <Form.Item label="邮箱" name="email" rules={[{ required: true, type: 'email', message: '请输入有效邮箱' }]}>
             <Input placeholder="例如：user@example.com" />
           </Form.Item>
           <Form.Item label="角色" name="role" initialValue="member">
             <Select options={[{ value: 'member', label: '普通成员' }, { value: 'admin', label: '管理员' }]} />
           </Form.Item>
-          <Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
             <Button type="primary" htmlType="submit" block loading={inviteLoading}>发送邀请</Button>
           </Form.Item>
         </Form>

@@ -11,9 +11,9 @@ func TestTenantGatewayCache_SetAndGet(t *testing.T) {
 	cache := llmgateway.NewTenantGatewayCache()
 	gw := llmgateway.NewGateway()
 
-	cache.Set("tenant-1", gw, 5*time.Minute)
+	cache.Set("tenant-1", gw, nil, 5*time.Minute)
 
-	got, ok := cache.Get("tenant-1")
+	got, _, ok := cache.Get("tenant-1")
 	if !ok {
 		t.Fatal("expected cache hit")
 	}
@@ -24,7 +24,7 @@ func TestTenantGatewayCache_SetAndGet(t *testing.T) {
 
 func TestTenantGatewayCache_Miss(t *testing.T) {
 	cache := llmgateway.NewTenantGatewayCache()
-	_, ok := cache.Get("nonexistent")
+	_, _, ok := cache.Get("nonexistent")
 	if ok {
 		t.Fatal("expected cache miss")
 	}
@@ -34,10 +34,10 @@ func TestTenantGatewayCache_Expiry(t *testing.T) {
 	cache := llmgateway.NewTenantGatewayCache()
 	gw := llmgateway.NewGateway()
 
-	cache.Set("tenant-1", gw, 10*time.Millisecond)
+	cache.Set("tenant-1", gw, nil, 10*time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 
-	_, ok := cache.Get("tenant-1")
+	_, _, ok := cache.Get("tenant-1")
 	if ok {
 		t.Fatal("expected cache miss after expiry")
 	}
@@ -47,10 +47,10 @@ func TestTenantGatewayCache_Invalidate(t *testing.T) {
 	cache := llmgateway.NewTenantGatewayCache()
 	gw := llmgateway.NewGateway()
 
-	cache.Set("tenant-1", gw, 5*time.Minute)
+	cache.Set("tenant-1", gw, nil, 5*time.Minute)
 	cache.Invalidate("tenant-1")
 
-	_, ok := cache.Get("tenant-1")
+	_, _, ok := cache.Get("tenant-1")
 	if ok {
 		t.Fatal("expected cache miss after invalidate")
 	}

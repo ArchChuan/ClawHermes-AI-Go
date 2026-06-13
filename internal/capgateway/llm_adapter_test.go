@@ -20,6 +20,16 @@ func (m *mockLLMGateway) Complete(_ context.Context, _ *llmgateway.CompletionReq
 	return m.resp, m.err
 }
 
+func (m *mockLLMGateway) CompleteStream(_ context.Context, _ *llmgateway.CompletionRequest, onToken func(string)) (*llmgateway.CompletionResponse, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.resp != nil {
+		onToken(m.resp.Content)
+	}
+	return m.resp, nil
+}
+
 func TestLLMAdapter_RouteTextContent(t *testing.T) {
 	mock := &mockLLMGateway{
 		resp: &llmgateway.CompletionResponse{

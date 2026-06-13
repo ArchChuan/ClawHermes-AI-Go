@@ -36,14 +36,69 @@ func TestRegistry_Register(t *testing.T) {
 	pool.ExpectBegin()
 	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
 	pool.ExpectExec("INSERT INTO agents").
-		WithArgs("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5, pgxmock.AnyArg()).
+		WithArgs("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5).
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	// replaceSkills: delete (empty AllowedSkills)
+	pool.ExpectExec("DELETE FROM agent_skill_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	// replaceMCPServers: delete then no inserts (empty MCPServerIDs)
+	pool.ExpectExec("DELETE FROM agent_mcp_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	// replaceKnowledgeWorkspaces: delete then no inserts
+	pool.ExpectExec("DELETE FROM agent_workspaces").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
 	pool.ExpectCommit()
 
 	reg := &Registry{pool: pool, logger: zap.NewNop()}
 	a := &mockAgent{config: &AgentConfig{ID: "a1", Name: "Alpha", Type: ReActAgent, LLMModel: "gpt-4o", MaxIterations: 5}}
 	if err := reg.Register(tenantCtx("t1"), a); err != nil {
 		t.Fatalf("Register: %v", err)
+	}
+	if err := pool.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestRegistry_Register_WithMCP(t *testing.T) {
+	pool, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	pool.ExpectBegin()
+	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
+	pool.ExpectExec("INSERT INTO agents").
+		WithArgs("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	// replaceSkills: delete (empty AllowedSkills)
+	pool.ExpectExec("DELETE FROM agent_skill_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	// replaceMCPServers: delete then insert
+	pool.ExpectExec("DELETE FROM agent_mcp_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	pool.ExpectExec("INSERT INTO agent_mcp_links").
+		WithArgs("a1", "srv1").
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	// replaceKnowledgeWorkspaces: delete then no inserts
+	pool.ExpectExec("DELETE FROM agent_workspaces").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	pool.ExpectCommit()
+
+	reg := &Registry{pool: pool, logger: zap.NewNop()}
+	a := &mockAgent{config: &AgentConfig{
+		ID: "a1", Name: "Alpha", Type: ReActAgent,
+		LLMModel: "gpt-4o", MaxIterations: 5,
+		MCPServerIDs: []string{"srv1"},
+	}}
+	if err := reg.Register(tenantCtx("t1"), a); err != nil {
+		t.Fatalf("Register with MCP: %v", err)
 	}
 	if err := pool.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
@@ -61,8 +116,17 @@ func TestRegistry_Get(t *testing.T) {
 	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
 	pool.ExpectQuery("SELECT id, name").
 		WithArgs(pgxmock.AnyArg()).
-		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations", "allowed_skills"}).
-			AddRow("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5, []string{}))
+		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations"}).
+			AddRow("a1", "Alpha", string(ReActAgent), "", "", "", "gpt-4o", 5))
+	pool.ExpectQuery("SELECT skill_id FROM agent_skill_links").
+		WithArgs("a1").
+		WillReturnRows(pgxmock.NewRows([]string{"skill_id"}))
+	pool.ExpectQuery("SELECT server_id FROM agent_mcp_links").
+		WithArgs("a1").
+		WillReturnRows(pgxmock.NewRows([]string{"server_id"}))
+	pool.ExpectQuery("SELECT aw.workspace_id").
+		WithArgs("a1").
+		WillReturnRows(pgxmock.NewRows([]string{"workspace_id", "name"}))
 	pool.ExpectCommit()
 
 	reg := &Registry{pool: pool, logger: zap.NewNop()}
@@ -75,6 +139,9 @@ func TestRegistry_Get(t *testing.T) {
 	}
 	if got := a.GetConfig().AllowedSkills; len(got) != 0 {
 		t.Errorf("expected empty allowed_skills, got %v", got)
+	}
+	if got := a.GetConfig().MCPServerIDs; len(got) != 0 {
+		t.Errorf("expected empty mcp_server_ids, got %v", got)
 	}
 	if err := pool.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
@@ -92,7 +159,7 @@ func TestRegistry_GetNotFound(t *testing.T) {
 	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
 	pool.ExpectQuery("SELECT id, name").
 		WithArgs("missing").
-		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations", "allowed_skills"}))
+		WillReturnRows(pgxmock.NewRows([]string{"id", "name", "type", "description", "persona", "system_prompt", "llm_model", "max_iterations"}))
 	pool.ExpectRollback()
 
 	reg := &Registry{pool: pool, logger: zap.NewNop()}
@@ -135,8 +202,20 @@ func TestRegistry_Update_Success(t *testing.T) {
 	pool.ExpectBegin()
 	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
 	pool.ExpectExec("UPDATE agents").
-		WithArgs("Beta", "", "", "", "gpt-4o", 5, pgxmock.AnyArg(), "a1").
+		WithArgs("Beta", "", "", "", "gpt-4o", 5, "a1").
 		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	// replaceSkills: delete (empty AllowedSkills)
+	pool.ExpectExec("DELETE FROM agent_skill_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	// replaceMCPServers: delete then no inserts
+	pool.ExpectExec("DELETE FROM agent_mcp_links").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+	// replaceKnowledgeWorkspaces: delete then no inserts
+	pool.ExpectExec("DELETE FROM agent_workspaces").
+		WithArgs("a1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
 	pool.ExpectCommit()
 
 	reg := &Registry{pool: pool, logger: zap.NewNop()}
@@ -159,7 +238,7 @@ func TestRegistry_Update_NotFound(t *testing.T) {
 	pool.ExpectBegin()
 	pool.ExpectExec("SET LOCAL search_path").WillReturnResult(pgxmock.NewResult("SET", 0))
 	pool.ExpectExec("UPDATE agents").
-		WithArgs("Beta", "", "", "", "gpt-4o", 5, pgxmock.AnyArg(), "missing").
+		WithArgs("Beta", "", "", "", "gpt-4o", 5, "missing").
 		WillReturnResult(pgxmock.NewResult("UPDATE", 0))
 	pool.ExpectRollback()
 

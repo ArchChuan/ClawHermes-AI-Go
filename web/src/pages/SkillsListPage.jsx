@@ -1,181 +1,171 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Table,
-  Button,
-  Space,
-  Tag,
-  Modal,
-  Card,
-  Typography,
-  Input,
-  notification,
-  Alert,
-  message
+  Button, Tag, Input, Modal, message, Typography, Card,
+  Row, Col, Tooltip, Popconfirm, Empty, Skeleton, Space,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined, DeleteOutlined, SearchOutlined, ThunderboltOutlined,
+  CodeOutlined, RobotOutlined, PartitionOutlined, GlobalOutlined,
+} from '@ant-design/icons';
 import { getAllSkills, deleteSkill } from '../services/api';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
-const { Search } = Input;
-const { Title } = Typography;
+const { Title, Text, Paragraph } = Typography;
+
+const TYPE_META = {
+  code: { color: '#52c41a', bg: '#f6ffed', label: 'Code', icon: <CodeOutlined /> },
+  llm: { color: '#1677ff', bg: '#e6f4ff', label: 'LLM', icon: <RobotOutlined /> },
+  http: { color: '#fa8c16', bg: '#fff7e6', label: 'HTTP', icon: <GlobalOutlined /> },
+  default: { color: '#8c8c8c', bg: '#f5f5f5', label: '其他', icon: <PartitionOutlined /> },
+};
+const typeMeta = (t) => TYPE_META[t] || TYPE_META.default;
+
+const SkillCard = ({ skill, onDelete }) => {
+  const meta = typeMeta(skill.type);
+  return (
+    <Card
+      style={{ borderRadius: 12, border: '1px solid #f0f0f0', height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: { padding: 20, flex: 1, display: 'flex', flexDirection: 'column' } }}
+      hoverable
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10,
+          background: meta.bg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, fontSize: 18, color: meta.color,
+        }}>
+          {meta.icon}
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <Tag style={{ border: 'none', borderRadius: 6, fontSize: 11, background: meta.bg, color: meta.color, fontWeight: 500 }}>
+            {meta.label}
+          </Tag>
+          {skill.type === 'code' && skill.config?.language && (
+            <Tag style={{ border: 'none', borderRadius: 6, fontSize: 10, background: '#f5f5f5', color: '#666', margin: 0 }}>
+              {skill.config.language}
+            </Tag>
+          )}
+        </div>
+      </div>
+
+      <Text strong style={{ fontSize: 15, marginBottom: 4, display: 'block' }}>{skill.name}</Text>
+      <Paragraph
+        type="secondary"
+        ellipsis={{ rows: 2 }}
+        style={{ fontSize: 13, marginBottom: 12, flex: 1, marginTop: 0 }}
+      >
+        {skill.description || '暂无描述'}
+      </Paragraph>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid #f5f5f5' }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {skill.created_at ? new Date(skill.created_at).toLocaleDateString('zh-CN') : '-'}
+        </Text>
+        <Tooltip title="通过 Agent 执行此技能">
+          <Popconfirm
+            title={`确定删除技能 "${skill.name}" 吗？`}
+            onConfirm={() => onDelete(skill.id)}
+            okText="删除" okType="danger" cancelText="取消"
+          >
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Tooltip>
+      </div>
+    </Card>
+  );
+};
 
 const SkillsListPage = () => {
+  const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
-    fetchSkills();
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await getAllSkills();
+        if (!cancelled) setSkills(res.data.skills || []);
+      } catch {
+        if (!cancelled) message.error('获取技能列表失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const fetchSkills = async () => {
+  const handleDelete = async (skillId) => {
     try {
-      setLoading(true);
-      const response = await getAllSkills();
-      setSkills(response.data.skills || []);
-    } catch (error) {
-      console.error('Error fetching skills:', error);
-      notification.error({
-        message: '获取技能列表失败',
-        description: error.message,
-      });
-    } finally {
-      setLoading(false);
+      await deleteSkill(skillId);
+      message.success('技能已删除');
+      setSkills(prev => prev.filter(s => s.id !== skillId));
+    } catch (err) {
+      message.error(err.response?.data?.error || '删除失败');
     }
   };
 
-  const handleDeleteSkill = (skillId) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该技能吗？此操作不可恢复。',
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteSkill(skillId);
-          message.success('技能删除成功');
-          fetchSkills();
-        } catch (error) {
-          message.error(error.response?.data?.error || '删除失败');
-        }
-      },
-    });
-  };
-
-  // 过滤技能列表
-  const filteredSkills = skills.filter(skill =>
-    skill.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    skill.description.toLowerCase().includes(searchText.toLowerCase())
+  const filteredSkills = skills.filter(s =>
+    s.name.toLowerCase().includes(searchText.toLowerCase()) ||
+    (s.description || '').toLowerCase().includes(searchText.toLowerCase())
   );
-
-  const columns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 200,
-      ellipsis: true,
-    },
-    {
-      title: '技能名称',
-      dataIndex: 'name',
-      key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => {
-        let color = 'blue';
-        if (type === 'code') color = 'green';
-        else if (type === 'llm') color = 'orange';
-        else color = 'default';
-        
-        return <Tag color={color}>{type}</Tag>;
-      },
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date) => date ? new Date(date).toLocaleString() : '-',
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_, record) => (
-        <Space size="middle">
-          <Button 
-            type="link" 
-            disabled
-            title="技能只能通过代理执行"
-          >
-            <InfoCircleOutlined /> 仅可通过代理执行
-          </Button>
-          <Button 
-            type="link" 
-            danger 
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteSkill(record.id)}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
-    },
-  ];
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={2}>技能管理</Title>
-        <Space>
-          <Search
-            placeholder="搜索技能名称或描述"
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>技能列表</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>技能通过 Agent 调用执行</Text>
+        </div>
+        <Space size={8}>
+          <Input
+            placeholder="搜索技能..."
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            style={{ width: 300 }}
+            allowClear
+            style={{ width: 220 }}
           />
-          <Button type="primary" icon={<PlusOutlined />} href="/skills/create">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/skills/create')}>
             创建技能
           </Button>
         </Space>
       </div>
 
-      <Alert
-        message="重要提醒"
-        description={
-          <div>
-            <p>技能只能通过智能代理执行，不能直接调用。要使用技能，请前往<Link to="/agents/create">创建智能代理</Link>或<Link to="/agents">管理现有代理</Link>。</p>
-          </div>
-        }
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-      />
-
-      <Card>
-        <Table 
-          dataSource={filteredSkills} 
-          columns={columns} 
-          rowKey="id" 
-          loading={loading}
-          pagination={{ 
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `总计 ${total} 条`,
-          }}
-        />
-      </Card>
+      {loading ? (
+        <Row gutter={[16, 16]}>
+          {[1, 2, 3, 4].map(i => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={i}>
+              <Card style={{ borderRadius: 12, border: '1px solid #f0f0f0' }} styles={{ body: { padding: 20 } }}>
+                <Skeleton active avatar paragraph={{ rows: 2 }} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      ) : filteredSkills.length === 0 ? (
+        <Empty
+          image={<ThunderboltOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
+          description={searchText ? '没有找到匹配的技能' : '还没有技能，点击右上角创建'}
+          style={{ padding: '60px 0' }}
+        >
+          {!searchText && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/skills/create')}>
+              创建第一个技能
+            </Button>
+          )}
+        </Empty>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {filteredSkills.map(skill => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={skill.id}>
+              <SkillCard skill={skill} onDelete={handleDelete} />
+            </Col>
+          ))}
+        </Row>
+      )}
     </div>
   );
 };

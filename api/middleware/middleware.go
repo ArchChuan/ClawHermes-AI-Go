@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -11,16 +12,40 @@ func ErrorHandler(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
-		if len(c.Errors) > 0 {
-			err := c.Errors.Last()
-			logger.Error("request error", zap.Error(err.Err))
+		if len(c.Errors) == 0 {
+			return
+		}
+		ginErr := c.Errors.Last()
 
+		// pull context fields set by earlier middleware
+		requestID, _ := c.Get(traceIDKey)
+		tenantID := ""
+		if tc, ok := tenantdb.FromContext(c.Request.Context()); ok {
+			tenantID = tc.TenantID
+		}
+
+		logger.Error("request error",
+			zap.String("request_id", asStr(requestID)),
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.String("tenant_id", tenantID),
+			zap.Uint64("error_type", uint64(ginErr.Type)),
+			zap.Error(ginErr.Err),
+		)
+
+		if !c.Writer.Written() {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    http.StatusBadRequest,
-				"message": err.Error(),
+				"error": ginErr.Error(),
 			})
 		}
 	}
+}
+
+func asStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func CORSMiddleware(allowedOrigin string) gin.HandlerFunc {

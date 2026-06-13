@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS skills (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agent_id     UUID REFERENCES agents(id) ON DELETE CASCADE,
     name         TEXT NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
     type         TEXT NOT NULL,
     config       JSONB NOT NULL DEFAULT '{}',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS memory_entries (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id   UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    user_id      TEXT,
+    agent_id     TEXT REFERENCES agents(id) ON DELETE SET NULL,
     role         TEXT NOT NULL,
     content      TEXT NOT NULL,
     type         TEXT NOT NULL DEFAULT 'short_term',
@@ -50,6 +53,9 @@ CREATE TABLE IF NOT EXISTS memory_entries (
     expires_at   TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- idempotent backfill: existing tenants provisioned before user_id/agent_id were added
+ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS entities (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -184,3 +190,58 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     response     TEXT,
     delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id   UUID        NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    user_id    TEXT        NOT NULL,
+    name       TEXT        NOT NULL DEFAULT '新会话',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days'
+);
+CREATE INDEX IF NOT EXISTS idx_chat_conv_agent_user
+    ON chat_conversations (agent_id, user_id, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID        NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role            TEXT        NOT NULL CHECK (role IN ('user', 'agent')),
+    content         TEXT        NOT NULL,
+    steps_json      JSONB       NOT NULL DEFAULT '[]',
+    is_error        BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_msg_conv
+    ON chat_messages (conversation_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS rag_workspaces (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    config      JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agent_workspaces (
+    agent_id     UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    workspace_id UUID NOT NULL REFERENCES rag_workspaces(id) ON DELETE CASCADE,
+    PRIMARY KEY (agent_id, workspace_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_executions (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id       TEXT        NOT NULL,
+    agent_name     TEXT        NOT NULL DEFAULT '',
+    user_id        TEXT        NOT NULL,
+    status         TEXT        NOT NULL CHECK (status IN ('success', 'error')),
+    input_preview  TEXT        NOT NULL DEFAULT '',
+    output_preview TEXT        NOT NULL DEFAULT '',
+    error_message  TEXT        NOT NULL DEFAULT '',
+    total_tokens   INT         NOT NULL DEFAULT 0,
+    duration_ms    INT         NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_exec_created
+    ON agent_executions (created_at DESC);

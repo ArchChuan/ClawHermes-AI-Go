@@ -14,6 +14,8 @@ import (
 // validCypherIdentifier matches safe Neo4j label and relationship type names.
 var validCypherIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+const maxQueryLimit = 1000
+
 var luceneSpecial = strings.NewReplacer(
 	`+`, `\+`, `-`, `\-`, `!`, `\!`,
 	`(`, `\(`, `)`, `\)`, `{`, `\{`, `}`, `\}`,
@@ -194,8 +196,8 @@ func (g *GraphRAG) FullTextSearch(ctx context.Context, searchTerm string, limit 
 	if strings.TrimSpace(searchTerm) == "" {
 		return nil, fmt.Errorf("searchTerm must not be empty")
 	}
-	if limit <= 0 || limit > 1000 {
-		return nil, fmt.Errorf("limit must be between 1 and 1000, got %d", limit)
+	if limit <= 0 || limit > maxQueryLimit {
+		return nil, fmt.Errorf("limit must be between 1 and %d, got %d", maxQueryLimit, limit)
 	}
 
 	cypher := `

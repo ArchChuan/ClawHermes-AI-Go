@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -8,8 +9,10 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/knowledge"
+	skillpkg "github.com/byteBuilderX/ClawHermes-AI-Go/internal/skill"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -163,7 +166,7 @@ func (h *RAGHandler) Query(c *gin.Context) {
 		zap.String("mode", req.Mode))
 
 	if req.TopK <= 0 {
-		req.TopK = 5
+		req.TopK = skillpkg.DefaultTopK
 	}
 
 	ragReq := knowledge.RAGQueryRequest{
@@ -237,13 +240,13 @@ func (h *RAGHandler) CreateWorkspace(c *gin.Context) {
 		return
 	}
 	if cfg.ChunkSize <= 0 {
-		cfg.ChunkSize = 512
+		cfg.ChunkSize = skillpkg.DefaultChunkSize
 	}
 	if cfg.ChunkOverlap <= 0 {
 		cfg.ChunkOverlap = 64
 	}
 	if cfg.TopK <= 0 {
-		cfg.TopK = 5
+		cfg.TopK = skillpkg.DefaultTopK
 	}
 
 	schema := "tenant_" + tenantID
@@ -453,6 +456,11 @@ func (h *RAGHandler) DeleteWorkspace(c *gin.Context) {
 		name,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			c.JSON(http.StatusConflict, gin.H{"error": "workspace is still linked to one or more agents; unlink it first"})
+			return
+		}
 		h.logger.Error("failed to delete workspace from db", zap.String("name", name), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

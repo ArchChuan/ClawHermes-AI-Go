@@ -17,522 +17,421 @@
 
 ## 技术栈
 
-| 组件 | 技术 | 用途 |
-|------|------|------|
-| 语言 | Go 1.22+ | 高性能后端 |
-| API 网关 | Gin | HTTP 服务框架 |
-| 事件总线 | NATS | 异步事件驱动 |
-| 向量数据库 | Milvus | 向量存储与检索 |
-| 图数据库 | Neo4j | 知识图谱存储 |
-| 关系数据库 | PostgreSQL | 租户数据、Agent/Skill 持久化 |
-| 缓存 | Redis | Token 存储、会话缓存 |
-| 日志 | Uber Zap | 结构化日志 |
-| 配置 | Spf13 Viper | 配置管理 |
-| 可观测 | OpenTelemetry + Prometheus | 链路追踪与指标 |
-| 部署 | Kubernetes/Helm | 云原生部署 |
-| 前端 | React + Vite | Web 控制台 |
+| 组件 | 技术 | 版本 | 用途 |
+|------|------|------|------|
+| 语言 | Go | 1.24.1 | 高性能后端 |
+| API 网关 | Gin | v1.9.1 | HTTP 服务框架 |
+| 事件总线 | NATS JetStream | v1.31.0 | 异步事件驱动 |
+| 向量数据库 | Milvus | v2.4.2 | 向量存储与检索 |
+| 图数据库 | Neo4j | v5.28.4 | 知识图谱存储 |
+| 关系数据库 | PostgreSQL (pgx v5) | v5.7.2 | 租户数据、Agent/Skill 持久化 |
+| 缓存 | Redis | go-redis v9.7.3 | Token 存储、会话缓存 |
+| 日志 | Uber Zap | v1.27.1 | 结构化日志 |
+| 可观测 | OpenTelemetry + Prometheus | v1.21 / v1.23.2 | 链路追踪与指标 |
+| 部署 | Kubernetes / Helm | — | 云原生部署 |
+| 前端 | React 18 + Vite 4 + Ant Design 5.2 | — | Web 控制台 |
 
-## 架构分层
+## 架构概览
 
 ```
-┌────────────────────────────────────────────────────┐
-│  Portal 接入层 (Gin HTTP API + JWT Auth)            │
-│  GET/POST /skills /agents /memory /knowledge /mcp  │
-│  /auth /admin /tenant                              │
-├────────────────────────────────────────────────────┤
-│  Auth & Multi-Tenancy                              │
-│  GitHub OAuth → JWT(RS256) → Tenant Schema 隔离    │
-├────────────────────────────────────────────────────┤
-│  Harness 组件生命周期管理                            │
-│  Register → Sequential Start → Reverse Stop        │
-├────────────────────────────────────────────────────┤
-│  Hermes 事件总线 (NATS)                             │
-│  Publish / Subscribe  domain.action subject 命名   │
-├────────────────────────────────────────────────────┤
-│  Agent Core                                        │
-│  ReAct / CoT / Planning / ToolCalling / RAG / Swarm│
-│  ┌──────────────┐   ┌───────────────────────────┐  │
-│  │ Agent Registry│   │ A2A Protocol              │  │
-│  │ (PostgreSQL) │   │ Sequential/Parallel/       │  │
-│  └──────────────┘   │ Hierarchical/Pipeline/Swarm│  │
-│                     └───────────────────────────┘  │
-├────────────────────────────────────────────────────┤
-│  Skill Gateway (原子化执行引擎)                      │
-│  Provider Registry → Circuit Breaker → Retry       │
-│  → Atomic Engine → Pipeline DSL → Audit Log        │
-├────────────────────────────────────────────────────┤
-│  三层记忆系统                                        │
-│  短期(Buffer/Window/Summary) + 长期(Vector) + Entity│
-├────────────────────────────────────────────────────┤
-│  GraphRAG 知识引擎 (Neo4j + Milvus)                 │
-│  文档解析 → 文本分块 → Embedding → 向量检索 + 图查询  │
-├────────────────────────────────────────────────────┤
-│  LLM Gateway                                       │
-│  OpenAI / Anthropic / Ollama  统一 Complete/Embed  │
-├────────────────────────────────────────────────────┤
-│  MCP (Model Context Protocol)                      │
-│  Client Manager → Skill Adapter → Cache            │
-├────────────────────────────────────────────────────┤
-│  可观测性 (OpenTelemetry + Prometheus + Zap)        │
-│  Trace / Metrics / Structured Logging              │
-└────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    React 前端 (web/)                         │
+│  Ant Design 5.2 · React Router 6 · Axios · Vite 4          │
+└────────────────────────┬────────────────────────────────────┘
+                         │ HTTP/REST + SSE
+┌────────────────────────▼────────────────────────────────────┐
+│               Gin HTTP API (api/)                            │
+│  Auth · TraceMiddleware · ErrorHandler · MetricsMiddleware   │
+│  RequireActiveTenant · RequireTenantRole · CORS             │
+└──┬──────────┬──────────┬──────────┬──────────┬─────────────┘
+   │          │          │          │          │
+   ▼          ▼          ▼          ▼          ▼
+Agent      Skill      Memory      MCP       Knowledge
+Registry   Handler    Manager    Manager    RAG Service
+(CRUD +    (CRUD)    (3-layer)  (MCP SDK)  (ingest +
+ execute)                                   query)
+   │                                           │
+   ▼                                           ▼
+ReAct Graph                             Milvus + Neo4j
+StateGraph[ReActState]                  (vector + graph)
+LLM Node ↔ Tool Node
+   │
+   ▼
+LLM Gateway (internal/llmgateway/)
+  TenantGatewayCache (5-min TTL)
+  ├── 通义千问 (Qwen)    dashscope.aliyuncs.com
+  └── 智谱AI  (Zhipu)   open.bigmodel.cn
+   │
+   ▼
+PostgreSQL (per-tenant schema)   Redis (token/session)
+NATS JetStream (event bus)       OpenTelemetry + Prometheus
 ```
 
-## 快速启动
+## 核心能力
 
-### 前置要求
+| 能力 | 实现 |
+|------|------|
+| 多租户隔离 | PostgreSQL `tenant_<UUID>` schema，`SET LOCAL search_path` 切换 |
+| 认证授权 | GitHub OAuth + JWT RS256（golang-jwt v5），全局管理员角色分离 |
+| 租户状态守卫 | `RequireActiveTenant` 中间件：`status != "active"` → 403 |
+| ReAct 智能体 | 自托管 `StateGraph[ReActState]`，LLM 节点 + 工具节点，条件边路由 |
+| per-tenant LLM 密钥 | `TenantGatewayCache`：5 分钟 TTL，AES-GCM 解密，注入 `CapabilityRequest` |
+| 工具调用 | `CapabilityGateway.Route()` 路由 Skill/LLM 请求；内置 `search_knowledge` RAG 工具 |
+| 流式输出 | SSE `POST /agents/:id/execute/stream`，`OnToken` 回调逐 token 推送 |
+| 对话持久化 | `chat_conversations` + `chat_messages` 表，会话 30 天过期 |
+| Agent ↔ MCP 绑定 | `agent_mcp_links` 联接表，随 Agent CRUD 原子维护 |
+| Agent ↔ 知识库绑定 | `agent_workspaces` 联接表，`search_knowledge` 工具按 workspace 检索 |
+| GraphRAG | 文档解析 → 分块 → 嵌入 → Milvus（向量）+ Neo4j（图谱） |
+| 三层记忆 | ShortTerm（Buffer/Window/Summary）+ LongTerm（向量）+ Entity |
+| A2A 协作 | sequential / parallel / hierarchical / pipeline / swarm 五种策略 |
+| 可观测 | Zap 结构化日志（`react.llm` / `react.tool` 事件）+ OTEL + Prometheus `/metrics` |
 
-- Go 1.22+
-- Docker & Docker Compose
-- Kubernetes (kubectl) — 用于云原生部署
-- Helm — 用于包管理
+## 目录结构
 
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/byteBuilderX/ClawHermes-AI-Go.git
-cd ClawHermes-AI-Go
 ```
-
-### 2. 配置环境
-
-```bash
-cp .env.example .env
-# 编辑 .env，填写 API Key 和各服务地址
-```
-
-### 3. 本地开发启动
-
-```bash
-./start.sh
-```
-
-或手动启动：
-
-```bash
-make build
-make run
-```
-
-### 4. 云原生部署 (Kubernetes)
-
-```bash
-# 构建 Docker 镜像
-make docker-build
-
-# 部署依赖服务（NATS、Milvus、Neo4j、PostgreSQL、Redis）
-kubectl apply -f k8s/dependencies.yaml
-
-# 等待依赖就绪
-kubectl wait --for=condition=ready pod -l app=nats --timeout=120s
-kubectl wait --for=condition=ready pod -l app=milvus --timeout=120s
-
-# 部署主应用
-kubectl apply -f k8s/deployment.yaml
-```
-
-#### 使用 Helm
-
-```bash
-make docker-build
-make helm-install
-```
-
-### 5. 验证健康状态
-
-```bash
-curl http://localhost:8080/health
-# {"status":"ok","service":"ClawHermes AI Go"}
+.
+├── cmd/server/main.go          # 入口：Harness 生命周期，组件注册
+├── api/
+│   ├── router.go               # 所有路由集中定义
+│   ├── handler/                # 每域一个 handler 文件
+│   │   ├── agent_handler.go    # Agent CRUD + execute + stream
+│   │   ├── chat_handler.go     # 对话会话 + 消息 CRUD
+│   │   ├── skill_handler.go
+│   │   ├── rag_handler.go
+│   │   ├── memory_handler.go
+│   │   ├── mcp_handler.go
+│   │   ├── auth_handler.go
+│   │   ├── admin_handler.go
+│   │   ├── tenant_handler.go
+│   │   └── model_handler.go
+│   ├── model/                  # Request/Response DTO
+│   └── middleware/             # ErrorHandler · Trace · Auth · Metrics · CORS
+├── internal/
+│   ├── agent/
+│   │   ├── agent.go            # AgentConfig, BaseAgent
+│   │   ├── registry.go         # CRUD + agent_mcp_links + agent_workspaces
+│   │   ├── execution_store.go  # exec_history 持久化
+│   │   ├── chat_store.go       # chat_conversations + chat_messages
+│   │   └── graph/
+│   │       ├── react.go        # BuildReActGraph, ReActState
+│   │       ├── state_graph.go  # StateGraph[S], CompiledGraph[S]
+│   │       └── retry.go        # RetryFn with exponential backoff
+│   ├── auth/                   # GitHub OAuth, JWT RS256, TokenStore
+│   ├── capgateway/             # CapabilityGateway interface + LLM adapter
+│   ├── llmgateway/
+│   │   ├── gateway.go          # LLM Gateway 核心
+│   │   ├── tenant_cache.go     # TenantGatewayCache (5-min TTL)
+│   │   ├── qwen.go             # 通义千问 client
+│   │   └── zhipu.go            # 智谱AI client
+│   ├── knowledge/              # GraphRAG: ingest + rag_service
+│   ├── memory/                 # 三层记忆系统
+│   ├── mcp/                    # MCP client manager + skill registry
+│   ├── agent/a2a/              # A2A 多智能体协议
+│   └── config/                 # Viper 配置加载
+├── pkg/
+│   ├── tenantdb/               # schema.go (go:embed), tenant_schema.sql
+│   ├── observability/          # Zap logger, Prometheus metrics, OTEL
+│   ├── crypto/                 # AES-GCM key derivation
+│   └── vector/                 # Milvus vector store wrapper
+└── web/                        # React 前端
+    └── src/
+        ├── pages/              # 路由页面
+        ├── components/         # 共享 UI 组件
+        ├── hooks/              # 自定义 Hook
+        ├── services/api.js     # 唯一 axios 实例
+        ├── contexts/           # React Context
+        └── utils/              # 纯函数工具
 ```
 
 ## API 端点
 
-### 认证 (Auth)
+### 认证 `/auth`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/auth/github` | 发起 GitHub OAuth 登录 |
-| GET | `/auth/github/callback` | GitHub OAuth 回调 |
-| POST | `/auth/register` | 通过邀请 Token 完成注册 |
+| GET | `/auth/github` | 发起 GitHub OAuth |
+| GET | `/auth/github/callback` | OAuth 回调 |
+| POST | `/auth/register` | 邮箱注册 |
 | POST | `/auth/refresh` | 刷新 JWT |
-| POST | `/auth/logout` | 退出登录 |
-| GET | `/auth/me` | 获取当前用户信息 |
-| POST | `/auth/switch-tenant` | 切换当前租户 |
-| POST | `/auth/create-tenant` | 创建新租户 |
-| GET | `/tenant/list` | 列出当前用户所属租户 |
+| POST | `/auth/logout` | 登出 |
+| GET | `/auth/me` | 当前用户信息 |
+| POST | `/auth/switch-tenant` | 切换租户 |
+| POST | `/auth/create-tenant` | 创建租户 |
 
-> 认证路由仅在配置了 `GITHUB_CLIENT_ID` 时启用。
-
-### 管理员 (Admin)，需 `global_admin` 角色
+### Agent `/agents`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/admin/tenants` | 列出所有租户 |
-| POST | `/admin/tenants` | 创建租户 |
-| GET | `/admin/tenants/:id` | 获取租户详情 |
-| PATCH | `/admin/tenants/:id` | 更新租户信息 |
-| DELETE | `/admin/tenants/:id` | 删除租户 |
+| GET | `/agents` | 列出当前租户所有 Agent |
+| POST | `/agents` | 创建 Agent（需租户 active） |
+| GET | `/agents/executions` | 执行历史列表 |
+| GET | `/agents/:id` | 获取 Agent 详情（含 MCP/知识库绑定） |
+| PUT | `/agents/:id` | 更新 Agent（需租户 active） |
+| DELETE | `/agents/:id` | 删除 Agent（需租户 active） |
+| POST | `/agents/:id/execute` | 同步执行（JSON 响应） |
+| POST | `/agents/:id/execute/stream` | 流式执行（SSE，`data:` 前缀逐 token） |
+| POST | `/agents/:id/conversations` | 新建对话会话 |
+| GET | `/agents/:id/conversations` | 列出 Agent 的对话会话 |
 
-### 租户管理 (Tenant)，需 `member` 角色
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/tenant/members` | 列出成员（分页） |
-| POST | `/tenant/members/invite` | 邀请成员（需 admin/owner） |
-| PATCH | `/tenant/members/:user_id/role` | 更新成员角色 |
-| DELETE | `/tenant/members/:user_id` | 移除成员 |
-| GET | `/tenant/settings` | 获取租户设置 |
-| PATCH | `/tenant/settings` | 更新租户设置 |
-
-### Skill
-
-写操作需要租户处于 `active` 状态。
+### 对话会话 `/conversations`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/skills` | 列出所有 Skill |
+| PATCH | `/conversations/:convID` | 重命名会话 |
+| DELETE | `/conversations/:convID` | 删除会话 |
+| GET | `/conversations/:convID/messages` | 获取消息列表 |
+| POST | `/conversations/:convID/messages` | 添加消息 |
+
+### Skill `/skills`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/skills` | 列出 Skill |
 | POST | `/skills` | 创建 Skill |
-| GET | `/skills/:id` | 获取 Skill 详情 |
+| GET | `/skills/:id` | 获取 Skill |
 | PUT | `/skills/:id` | 更新 Skill |
 | DELETE | `/skills/:id` | 删除 Skill |
 
-### Agent
+### 知识库 `/knowledge`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/agents` | 列出所有 Agent |
-| POST | `/agents` | 创建 Agent（租户 active 时） |
-| GET | `/agents/:id` | 获取 Agent 详情 |
-| POST | `/agents/:id/execute` | 执行 Agent（租户 active 时） |
-| GET | `/agents/executions` | 列出执行历史 |
-| DELETE | `/agents/:id` | 删除 Agent |
+| GET | `/knowledge/workspaces` | 列出知识空间 |
+| POST | `/knowledge/workspaces` | 创建知识空间（admin） |
+| PATCH | `/knowledge/workspaces/:name` | 更新知识空间（admin） |
+| DELETE | `/knowledge/workspaces/:name` | 删除知识空间（admin） |
+| GET | `/knowledge/workspaces/:name/stats` | 空间统计 |
+| POST | `/knowledge/query` | RAG 检索查询 |
+| POST | `/knowledge/ingest` | 上传文档并入库（admin） |
 
-### 知识库 (Knowledge / RAG)
-
-需要 JWT + 租户上下文，写操作需 `admin` 角色且租户 `active`。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/knowledge/workspaces` | 列出知识库工作区 |
-| GET | `/knowledge/workspaces/:name/stats` | 获取工作区统计 |
-| POST | `/knowledge/workspaces` | 创建工作区（admin） |
-| PATCH | `/knowledge/workspaces/:name` | 更新工作区（admin） |
-| DELETE | `/knowledge/workspaces/:name` | 删除工作区（admin） |
-| POST | `/knowledge/ingest` | 上传并摄入文档（admin） |
-| POST | `/knowledge/query` | RAG 查询 |
-
-### 记忆 (Memory)
+### 记忆 `/memory`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/memory/sessions` | 创建记忆会话 |
-| POST | `/memory` | 添加记忆条目 |
-| GET | `/memory/:id` | 获取记忆条目 |
+| POST | `/memory` | 写入记忆条目 |
+| GET | `/memory/:id` | 读取记忆 |
 | POST | `/memory/search` | 语义搜索记忆 |
-| DELETE | `/memory/:id` | 删除记忆条目 |
-| GET | `/memory/stats` | 获取记忆统计 |
+| DELETE | `/memory/:id` | 删除记忆 |
+| GET | `/memory/stats` | 记忆统计 |
 | DELETE | `/memory/session/:session_id` | 清空会话记忆 |
-| GET | `/memory/entities` | 获取实体记忆 |
-| POST | `/memory/extract-entities` | 提取实体 |
-| GET | `/memory/summary/:session_id` | 获取会话摘要 |
+| GET | `/memory/entities` | 实体列表 |
+| POST | `/memory/extract-entities` | 从文本抽取实体 |
+| GET | `/memory/summary/:session_id` | 会话摘要 |
 
-### MCP
+### 租户 `/tenant`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/mcp/servers` | 列出所有 MCP 服务器 |
-| GET | `/api/v1/mcp/servers/:id` | 获取服务器详情 |
-| GET | `/api/v1/mcp/servers/:id/tools` | 列出服务器工具 |
-| GET | `/api/v1/mcp/servers/:id/resources` | 列出服务器资源 |
-| POST | `/api/v1/mcp/servers` | 连接 MCP 服务器（需 active） |
-| DELETE | `/api/v1/mcp/servers/:id` | 断开服务器（需 active） |
-| POST | `/api/v1/mcp/tools/:toolId/execute` | 执行工具（需 active） |
-| GET | `/api/v1/mcp/skills` | 列出 MCP Skills |
-| GET | `/api/v1/mcp/skills/:id` | 获取 Skill 详情 |
-| POST | `/api/v1/mcp/skills/refresh` | 刷新 Skills（需 active） |
-| GET | `/api/v1/mcp/status` | 服务器连接状态统计 |
+| GET | `/tenant/list` | 当前用户所有租户 |
+| GET | `/tenant/members` | 成员列表 |
+| POST | `/tenant/members/invite` | 邀请成员 |
+| PATCH | `/tenant/members/:user_id/role` | 修改成员角色 |
+| DELETE | `/tenant/members/:user_id` | 移除成员 |
+| GET | `/tenant/settings` | 获取租户设置（含加密 LLM 密钥 hint） |
+| PATCH | `/tenant/settings` | 更新租户设置（需租户 active） |
 
-MCP 服务器配置持久化至 PostgreSQL，服务启动时自动恢复连接。
+### 全局管理 `/admin`（需 global_admin 角色）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/tenants` | 所有租户 |
+| POST | `/admin/tenants` | 创建租户 |
+| GET | `/admin/tenants/:id` | 租户详情 |
+| PATCH | `/admin/tenants/:id` | 更新租户（suspend/activate） |
+| DELETE | `/admin/tenants/:id` | 删除租户 |
 
 ### 其他
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | `/models` | 可用 LLM 模型列表 |
 | GET | `/health` | 健康检查 |
 | GET | `/metrics` | Prometheus 指标 |
 
-## 核心概念
+## Agent 系统
 
-### Skill Gateway
-
-Skill 是 ClawHermes 的原子化能力单元，支持三种类型：
-
-- **Registry Skill**: 通过 `orchestrator.Registry` 注册的内置 Skill
-- **Code Skill**: 代码执行能力（Python、JavaScript 等）
-- **LLM Skill**: 大模型调用能力（OpenAI、Claude、Ollama）
-- **MCP Skill**: 通过 MCP 协议接入的外部工具
-
-SkillGateway 执行链：
-
-```
-SkillRequest
-  → ProviderRegistry.Resolve(skillID)
-  → CircuitBreaker.Allow(skillID)   // 熔断保护
-  → AtomicEngine.execute()          // 带超时 + 指数退避重试
-  → Auditor.log()                   // 审计日志
-  → PipelineEngine.execute()        // 多步骤编排
-```
-
-**Pipeline DSL 示例：**
+### AgentConfig
 
 ```go
-pipeline := skillgateway.NewPipelineBuilder("my-pipeline").
-    Step("fetch", "fetch-skill", input).
-    If("need-translate", func(ctx StepContext) bool {
-        return ctx["$steps.fetch.output"].(string) != ""
-    }).
-    Then(NewPipelineBuilder("").Step("translate", "translate-skill", nil)).
-    EndIf().
-    Parallel("enrich",
-        NewPipelineBuilder("").Step("tag", "tag-skill", nil),
-        NewPipelineBuilder("").Step("classify", "classify-skill", nil),
-    ).
-    Build()
-```
-
-### Agent 系统
-
-```go
-config := &agent.AgentConfig{
-    ID:            "agent-001",
-    Name:          "My Agent",
-    Type:          agent.ReActAgent,  // react/cot/planning/tool_calling/rag/swarm
-    SystemPrompt:  "You are a helpful assistant.",
-    MaxIterations: 10,
+type AgentConfig struct {
+    ID                    string
+    Name                  string
+    Type                  AgentType         // "react"
+    Description           string
+    Persona               string
+    SystemPrompt          string
+    LLMModel              string
+    MaxIterations         int
+    AllowedSkills         []string          // Skill ID 列表
+    MCPServerIDs          []string          // 关联 MCP 服务器 ID（agent_mcp_links）
+    KnowledgeWorkspaceIDs []string          // 关联知识空间 ID（agent_workspaces）
+    KnowledgeWorkspaceNames []string        // 冗余名称，只读
 }
-a := agent.NewBaseAgent(config, logger)
-registry.Register(ctx, a)
-
-result, err := a.Execute(ctx, "用户输入",
-    agent.WithMaxSteps(10),
-    agent.WithMemory(true),
-    agent.WithTemperature(0.7),
-)
 ```
 
-### A2A 多智能体协作
+### ReAct 图执行引擎
 
-`internal/agent/a2a/` 实现 Agent-to-Agent 协议：
+`internal/agent/graph/` 实现了泛型 `StateGraph[S]`，完全自托管，不依赖任何工作流引擎。
 
-- **Discovery**: 能力注册与发现
-- **Negotiation**: 协作条件协商
-- **Orchestrator**: 创建执行计划，支持 5 种策略：`sequential` / `parallel` / `hierarchical` / `pipeline` / `swarm`
-- **Messages**: 通过 Inbox/Outbox 异步处理
+```
+BuildReActGraph(capGW, logger)
+    ├── AddNode("llm",  makeLLMNode)     # 调用 LLM，处理 tool_calls
+    ├── AddNode("tool", makeToolNode)    # 执行 Skill / search_knowledge
+    ├── AddConditionalEdge("llm", fn)    # has tool_calls → "tool"，否则 → END
+    ├── AddEdge("tool", "llm")           # 工具结果回 LLM
+    └── SetEntryPoint("llm")
+```
+
+`ReActState` 携带：`TenantID`、`TraceID`、`LLMAPIKeys`、`Model`、`Messages`、`AvailableTools`、`OnToken`（流式回调）、`RAGSearchFn`（知识库检索回调）。
+
+### 内置工具
+
+| 工具名 | 触发方式 | 说明 |
+|--------|----------|------|
+| `search_knowledge` | LLM tool_call | 按 workspace 名称在 Milvus + Neo4j 中检索，topK ≤ 20 |
+| `<skill_id>` | LLM tool_call | 通过 `CapabilityGateway.Route(CapSkill)` 路由执行 |
+
+### 执行日志事件
+
+| 事件 | 级别 | 字段 |
+|------|------|------|
+| `react.llm` | INFO/ERROR | `trace_id` `tenant_id` `model` `step` `tokens` `total_tokens` `latency_ms` `has_tool_calls` |
+| `react.tool` | INFO/ERROR | `trace_id` `tenant_id` `tool_name` `latency_ms` |
+
+## per-tenant LLM 密钥缓存
 
 ```go
-orch := a2a.NewOrchestrator(logger)
-plan, _ := orch.CreatePlan(ctx, collaborationID, "分析任务",
-    a2a.StrategyParallel, participants)
+// internal/llmgateway/tenant_cache.go
+type TenantGatewayCache struct { /* sync.Mutex + entries map */ }
+type cacheEntry struct {
+    gateway   *Gateway
+    apiKeys   map[string]string  // provider → plaintext key
+    expiresAt time.Time          // 5 分钟 TTL
+}
 ```
 
-### 三层记忆系统
+`resolveTenantGateway(ctx, db, tenantID, baseGW, aesKey, cache)` 流程：
 
-```
-短期记忆 (ShortTerm)
-├── ConversationBufferMemory   — 无限缓冲
-├── ConversationWindowMemory   — 滑动窗口（ShortTermWindowSize 条）
-└── ConversationSummaryMemory  — 自动摘要压缩
+1. 命中缓存 → 直接返回
+2. 未命中 → 查 `tenant_settings.llm_api_keys_encrypted`，AES-GCM 解密
+3. 构造带密钥的 `*Gateway`，写入缓存
 
-长期记忆 (LongTerm)  → Milvus 向量检索，支持语义搜索 + 混合检索
-实体记忆  (Entity)   → 提取并持久化命名实体关系
-```
+`CapabilityRequest.LLMAPIKeys` 将密钥注入 LLM 节点，每次调用用租户密钥覆盖全局配置。
 
-```go
-memManager := memory.NewMemoryManager(config, logger, vectorMemory, entityMemory, persistence, pool)
-// Agent 自动注入：agent.SetMemoryManager(memManager)
-```
+## LLM 提供商
 
-### LLM Gateway
+| 提供商 | 包 | Base URL |
+|--------|----|----------|
+| 通义千问（Qwen） | `internal/llmgateway/qwen.go` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 智谱AI（Zhipu） | `internal/llmgateway/zhipu.go` | `https://open.bigmodel.cn/api/paas/v4` |
 
-```go
-gateway := llmgateway.NewGateway()
-gateway.RegisterClient(llmgateway.ProviderQwen, qwenClient)
-gateway.RegisterClient(llmgateway.ProviderZhipu, zhipuClient)
-gateway.RegisterEmbeddingClient(llmgateway.ProviderQwen, embedClient)
-gateway.SetDefault(llmgateway.ProviderQwen)
+两者均实现 OpenAI 兼容接口，HTTP 超时 60 秒。
 
-resp, err := gateway.Complete(ctx, &llmgateway.CompletionRequest{
-    Model: "qwen-plus",
-    Messages: []llmgateway.Message{{Role: "user", Content: "Hello"}},
-})
-```
+## 数据库 Schema（租户 Schema）
 
-**支持的提供商：** 通义千问 (Qwen) · 智谱 AI (Zhipu)
+租户 Schema 由 `pkg/tenantdb/schema.go` 通过 `go:embed tenant_schema.sql` 自动在租户创建时执行，幂等。
 
-### GraphRAG 知识引擎
+### 核心业务表
 
-```
-文档上传 → Parser 解析 → Chunker 分块
-→ EmbeddingService 向量化
-→ VectorStore (Milvus) 存储
-→ GraphRAG (Neo4j) 知识图谱关联
-→ RAGService.Query() 混合检索召回
-```
+| 表 | 主键 | 说明 |
+|----|------|------|
+| `agents` | `TEXT` | Agent 配置，`allowed_skills TEXT[]` |
+| `skills` | `TEXT` | Skill 配置，`config JSONB` |
+| `mcp_configs` | `TEXT` | MCP 服务器配置 |
+| `agent_mcp_links` | `(agent_id, server_id)` | Agent ↔ MCP 联接，CASCADE DELETE |
+| `rag_workspaces` | `UUID` | 知识空间，`name UNIQUE` |
+| `agent_workspaces` | `(agent_id, workspace_id)` | Agent ↔ 知识空间联接，CASCADE DELETE |
+| `chat_conversations` | `UUID` | 对话会话，`expires_at = NOW()+30d` |
+| `chat_messages` | `UUID` | 消息，`role CHECK('user','agent')`，`steps_json JSONB` |
+| `sessions` | `UUID` | 执行会话 |
+| `memory_entries` | `UUID` | 三层记忆条目 |
+| `exec_history` | `UUID` | Agent 执行历史 |
+| `llm_api_keys` | `UUID` | 加密存储的 LLM API Key |
+| `model_quotas` | `UUID` | 模型配额管理 |
+| `webhooks` / `webhook_deliveries` | `UUID` | Webhook 事件推送 |
 
-### 多租户隔离
+## 中间件
 
-- 每个租户在 PostgreSQL 中拥有独立 schema：`tenant_<tenant_id>`（UUID，含连字符，schema 名双引号转义）
-- JWT Claims 携带 `tenant_id` + `role`，中间件自动设置 `search_path`
-- 角色体系：`global_admin` > `owner` > `admin` > `member`
-- 租户状态：`active` 正常 / `suspended` 禁用 — suspended 状态下所有写操作和 Agent 执行被 `RequireActiveTenant` 中间件拦截（HTTP 403），读接口不受影响
-- 用户可属于多个租户，通过 `POST /auth/switch-tenant` 切换
+| 中间件 | 作用 |
+|--------|------|
+| `TraceMiddleware` | 注入 `request_id`、`trace_id`、`tenant_id`、`user_id` 到 context 和日志 |
+| `ErrorHandler` | 统一错误响应格式 `{"code": N, "message": "..."}` |
+| `MetricsMiddleware` | 记录 HTTP 请求延迟和状态码到 Prometheus |
+| `CORSMiddleware` | 跨域白名单，仅允许配置的 `FrontendURL` |
+| `RequireActiveTenant` | 查 `public.tenants` 表，`status != "active"` → 403 |
+| `RequireTenantRole` | 验证 JWT claims 中的租户角色（member/admin） |
+| `RequireGlobalAdmin` | 验证 `global_admin` 角色，仅用于 `/admin` 路由 |
+| `InjectTenantContext` | 从 JWT 提取 `tenant_id`，注入 `pkg/tenantdb.TenantContext` |
 
-### Harness 生命周期
+## 前端页面
 
-```go
-harness := harnesspkg.New(logger)
-harness.Register(hermesComponent)
-harness.Register(otherComponent)
-harness.Start(ctx)   // 顺序启动
-defer harness.Stop(ctx) // 逆序停止
-```
+| 页面 | 路径 | 说明 |
+|------|------|------|
+| `DashboardPage` | `/` | 仪表盘 |
+| `AgentsListPage` | `/agents` | Agent 列表 |
+| `CreateAgentPage` | `/agents/create` | 创建 Agent（含 Skill/MCP/知识库绑定） |
+| `EditAgentPage` | `/agents/:id/edit` | 编辑 Agent（含 Skill/MCP/知识库绑定） |
+| `AgentChatPage` | `/chat` | Agent 对话 |
+| `ExecutionHistoryPage` | `/history` | 执行历史 |
+| `SkillsListPage` | `/skills` | Skill 列表 |
+| `CreateSkillPage` | `/skills/create` | 创建 Skill |
+| `KnowledgePage` | `/knowledge` | 知识空间列表 |
+| `KnowledgeDetailPage` | `/knowledge/:name` | 知识空间详情（文档、统计） |
+| `MemoryPage` | `/memory` | 记忆管理 |
+| `MCPServersPage` | `/mcp` | MCP 服务器管理 |
+| `MembersPage` | `/tenant/members` | 租户成员管理 |
+| `SettingsPage` | `/tenant/settings` | 租户设置（LLM 密钥配置） |
+| `TenantsListPage` | `/admin/tenants` | 全局租户管理（global_admin） |
 
-## 可观测性
+## 开发
 
-### Prometheus 指标
+### 依赖
 
-```
-http_requests_total{method, path, status}
-http_request_duration_seconds{method, path}
-skill_executions_total{skill_id, status}
-skill_circuit_breaker_state{skill_id}       // 0=closed 1=open 2=half_open
-agent_executions_total{agent_id, type, status}
-llm_requests_total{model, provider, status}
-llm_request_duration_seconds{model, provider}
-llm_token_usage_total{model, token_type}
-knowledge_queries_total{type, status}
-hermes_events_total{type, status}
-```
+- Go 1.24.1
+- Node.js 18+
+- PostgreSQL 15+
+- Redis 7+
+- Milvus 2.4.x
+- Neo4j 5.x
+- NATS 2.x
 
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (admin/admin)
-- Jaeger: `http://localhost:16686`
-- Metrics 端点: `GET /metrics`
-
-### OpenTelemetry 追踪
-
-每个 Handler 通过 `middleware/trace.go` 自动创建 Span；内部关键操作手动创建子 Span，命名格式：`{component}.{operation}`。
-
-## 环境配置
-
-```env
-# 服务
-PORT=8080
-
-# PostgreSQL
-POSTGRES_URL=postgres://user:password@localhost:5432/clawhermes?sslmode=disable
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# NATS
-NATS_URL=nats://localhost:4222
-
-# Milvus
-MILVUS_HOST=localhost
-MILVUS_PORT=19530
-
-# Neo4j
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-
-# GitHub OAuth + JWT
-GITHUB_CLIENT_ID=your-client-id
-GITHUB_CLIENT_SECRET=your-client-secret
-JWT_PRIVATE_KEY_PEM=-----BEGIN RSA PRIVATE KEY-----...
-GLOBAL_ADMIN_GITHUB_LOGIN=your-github-login
-
-# LLM（通义千问 / 智谱 AI）
-QWEN_API_KEY=sk-...
-ZHIPU_API_KEY=...
-
-# OpenTelemetry
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-```
-
-## 常用命令
+### 后端
 
 ```bash
-make build           # 编译
-make run             # 运行
-make test            # 单元测试
-make test-coverage   # 测试覆盖率
-make fmt             # 代码格式化
-make vet             # 静态检查
-make lint            # Lint 检查
-make docker-build    # 构建 Docker 镜像
-make k8s-deploy      # 部署到 Kubernetes
-make k8s-delete      # 从 Kubernetes 删除
-make helm-install    # Helm 安装
-make helm-uninstall  # Helm 卸载
-make clean           # 清理构建产物
-```
+# 运行测试
+go vet && go test -short ./...
 
-## 开发指南
-
-### 添加新 Skill
-
-1. 在 `internal/skill/` 中实现 `Skill` 接口（继承 `BaseSkill`）
-2. 如需执行，实现 `SkillExecutor` 接口的 `Execute(input interface{}) (interface{}, error)`
-3. 通过 `orchestrator.Registry.Register(ctx, id, skill)` 注册
-4. （可选）通过 `skillgateway.ProviderRegistry` 注册为 Provider 接入熔断/流水线
-
-### 运行测试
-
-```bash
+# 完整测试（含竞态检测）
 go test -v -race -timeout 30s ./...
-go test -v ./internal/skill/...    # 指定包
-make test-coverage                  # 生成覆盖率报告
+
+# 启动服务（需 .env 配置）
+go run cmd/server/main.go
 ```
 
-### 代码规范
+### 前端
 
-- Zap 结构化日志，禁止 `fmt.Print`
-- 错误用 `fmt.Errorf("operation: %w", err)` 包装
-- 每次变更后运行 `go vet && go test -short ./...`
-- 行长 ≤ 120 字符；import 顺序：stdlib → 第三方 → internal
+```bash
+cd web
+npm install
+npm run dev    # 开发服务器
+npm run build  # 生产构建
+npm run lint   # ESLint 检查
+```
 
-## 商业化能力
+### 环境变量（关键项）
 
-- ✅ 多租户隔离（PostgreSQL schema 级，UUID schema 名安全转义）
-- ✅ GitHub OAuth + JWT RS256 认证，3 天免登录
-- ✅ 租户禁用强制拦截（suspended 状态写操作 403）
-- ✅ 多租户切换（用户可属于多个租户）
-- ✅ 成员角色管理（owner/admin/member + 邀请流程）
-- ✅ Skill 熔断器 + 流水线编排
-- ✅ A2A 多智能体协作（5 种策略）
-- ✅ 三层记忆系统
-- ✅ GraphRAG 知识增强（工作区 CRUD + 文档摄入）
-- ✅ MCP 服务器管理（持久化 + 自动恢复连接）
-- ✅ Agent 执行历史记录与查询
-- ✅ 通义千问 / 智谱 AI LLM 接入
-- ✅ Web 控制台（React）：Dashboard · Agents · Skills · 知识库 · 记忆 · MCP · 成员管理 · 租户设置
-- ✅ 私有化部署 / 云原生 Kubernetes
-- ✅ 全链路可观测（OTel + Prometheus + Grafana）
-- 🔄 Skill 插件市场
-- 🔄 AI 成本治理
-- 🔄 灰度发布
+| 变量 | 说明 |
+|------|------|
+| `DATABASE_URL` | PostgreSQL 连接串 |
+| `REDIS_URL` | Redis 连接串 |
+| `NATS_URL` | NATS 连接串 |
+| `MILVUS_HOST` / `MILVUS_PORT` | Milvus 地址 |
+| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j 连接 |
+| `JWT_PRIVATE_KEY_PEM` | RS256 私钥（PEM 格式）|
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth |
+| `GLOBAL_ADMIN_GITHUB_LOGIN` | 全局管理员 GitHub 用户名 |
+| `FRONTEND_URL` | 前端地址（CORS 白名单）|
+| `SECURE_COOKIES` | 生产环境设为 `true` |
 
-## 许可证
-
-Apache License 2.0 — 详见 [LICENSE](LICENSE)
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！详见 [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## 联系方式
-
-- 📧 Email: [18348792873@163.com](18348792873@163.com)
-- 🐙 GitHub: [byteBuilderX/ClawHermes-AI-Go](https://github.com/byteBuilderX/ClawHermes-AI-Go)
+密钥禁止入 git，通过 Vault / AWS Secrets Manager / `.env`（本地开发）注入。
