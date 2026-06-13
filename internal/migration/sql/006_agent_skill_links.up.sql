@@ -1,0 +1,1 @@
+-- no-op: agent_skill_links and FK changes are tenant-schema DDL, handled by pkg/tenantdb/tenant_schema.sql + ProvisionAllTenantSchemas

@@ -2,6 +2,7 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -24,7 +25,7 @@ func NewCodeSkill(id, name, description, code, language string) *CodeSkill {
 	}
 }
 
-func (cs *CodeSkill) Execute(input interface{}) (interface{}, error) {
+func (cs *CodeSkill) Execute(_ context.Context, input interface{}) (interface{}, error) {
 	// 解析输入
 	_, ok := input.(map[string]interface{})
 	if !ok {

@@ -8,6 +8,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent/graph"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/capgateway"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // capGWSequence drives LLM responses in sequence; tool always returns fixed resp.
@@ -52,7 +53,7 @@ func TestBuildReActGraph_DirectAnswer(t *testing.T) {
 	stub := &capGWSequence{
 		responses: []capgateway.CapabilityResponse{{Content: "42"}},
 	}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -74,7 +75,7 @@ func TestBuildReActGraph_ToolCall(t *testing.T) {
 		},
 		toolResp: capgateway.CapabilityResponse{Content: "42"},
 	}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -97,7 +98,7 @@ func TestBuildReActGraph_MaxIterations(t *testing.T) {
 		},
 		toolResp: capgateway.CapabilityResponse{Content: "ok"},
 	}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -110,7 +111,7 @@ func TestBuildReActGraph_MaxIterations(t *testing.T) {
 
 func TestBuildReActGraph_LLMError(t *testing.T) {
 	stub := &errCapGW{err: context.DeadlineExceeded}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -127,7 +128,7 @@ func TestBuildReActGraph_TokensAccumulated(t *testing.T) {
 			{Content: "result", Usage: capgateway.TokenUsage{Prompt: 10, Completion: 5, Total: 15}},
 		},
 	}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -147,7 +148,7 @@ func TestBuildReActGraph_TokensAccumulatedOverMultipleSteps(t *testing.T) {
 		},
 		toolResp: capgateway.CapabilityResponse{Content: "ok"},
 	}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	state := graph.ReActState{
@@ -161,7 +162,7 @@ func TestBuildReActGraph_TokensAccumulatedOverMultipleSteps(t *testing.T) {
 
 func TestBuildReActGraph_ContextTimeout(t *testing.T) {
 	stub := &slowCapGW{delay: 200 * time.Millisecond}
-	cg, err := graph.BuildReActGraph(stub)
+	cg, err := graph.BuildReActGraph(stub, zap.NewNop())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

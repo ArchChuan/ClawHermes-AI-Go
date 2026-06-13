@@ -15,6 +15,7 @@ import (
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/model"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/llmgateway"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	pkgcrypto "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -45,8 +46,8 @@ func (h *TenantHandler) ListMembers(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+	if pageSize < 1 || pageSize > constants.MaxPageSize {
+		pageSize = constants.DefaultPageSize
 	}
 	offset := (page - 1) * pageSize
 
@@ -126,7 +127,7 @@ func (h *TenantHandler) InviteMember(c *gin.Context) {
 	}
 
 	invitationID := uuid.New().String()
-	expiresAt := time.Now().UTC().Add(72 * time.Hour)
+	expiresAt := time.Now().UTC().Add(constants.InviteTokenTTL)
 
 	_, err := h.db.Exec(c.Request.Context(),
 		`INSERT INTO public.invitations(id, tenant_id, email, role, token_hash, expires_at, created_at, invited_by)

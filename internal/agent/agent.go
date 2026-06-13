@@ -439,6 +439,47 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 		}
 	}
 
+	// Async long-term indexing: fire-and-forget, does not block the caller.
+	if a.MemoryManager != nil && a.SessionContext != nil && execErr == nil {
+		memMgr := a.MemoryManager
+		sessCtx := a.SessionContext
+		capturedInput := input
+		capturedOutput := result.Output
+		capturedAgentID := agentID
+		go func() { //nolint:gosec
+			idxCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			userEntry := &memory.MemoryEntry{
+				Role:      "user",
+				Content:   capturedInput,
+				TenantID:  sessCtx.TenantID,
+				UserID:    sessCtx.UserID,
+				SessionID: sessCtx.SessionID,
+				AgentID:   sessCtx.AgentID,
+			}
+			if err := memMgr.Add(idxCtx, userEntry); err != nil {
+				a.Logger.Warn("agent: long-term indexing failed for user turn",
+					zap.String("agent_id", capturedAgentID),
+					zap.Error(err))
+			}
+			if capturedOutput != "" {
+				agentEntry := &memory.MemoryEntry{
+					Role:      "assistant",
+					Content:   capturedOutput,
+					TenantID:  sessCtx.TenantID,
+					UserID:    sessCtx.UserID,
+					SessionID: sessCtx.SessionID,
+					AgentID:   sessCtx.AgentID,
+				}
+				if err := memMgr.Add(idxCtx, agentEntry); err != nil {
+					a.Logger.Warn("agent: long-term indexing failed for agent turn",
+						zap.String("agent_id", capturedAgentID),
+						zap.Error(err))
+				}
+			}
+		}()
+	}
+
 	result.Duration = time.Since(startTime)
 	a.mu.Lock()
 	result.Steps = a.State.StepsTaken

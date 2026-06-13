@@ -7,6 +7,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	defaultMaxChunkSize = 1000
+	defaultOverlapSize  = 200
+	defaultMinChunkSize = 100
+)
+
 type Chunker struct {
 	logger       *zap.Logger
 	maxChunkSize int
@@ -17,9 +23,9 @@ type Chunker struct {
 func NewChunker(logger *zap.Logger) *Chunker {
 	return &Chunker{
 		logger:       logger,
-		maxChunkSize: 1000, // Maximum characters per chunk
-		overlapSize:  200,  // Overlap between chunks
-		minChunkSize: 100,  // Minimum characters per chunk
+		maxChunkSize: defaultMaxChunkSize,
+		overlapSize:  defaultOverlapSize,
+		minChunkSize: defaultMinChunkSize,
 	}
 }
 

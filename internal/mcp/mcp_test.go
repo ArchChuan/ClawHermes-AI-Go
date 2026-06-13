@@ -358,12 +358,8 @@ func TestStoreResourcesRespectsMaxSize(t *testing.T) {
 
 // TestMCPSkillWrapperUsesStoredContext 验证 Execute 使用构造时注入的 context
 func TestMCPSkillWrapperUsesStoredContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // 立即取消
-
 	logger := zap.NewNop()
 	wrapper := &MCPSkillWrapper{
-		ctx:      ctx,
 		ID:       "mcp:test:tool",
 		Name:     "tool",
 		Type:     "mcp",
@@ -373,9 +369,9 @@ func TestMCPSkillWrapperUsesStoredContext(t *testing.T) {
 		logger:   logger,
 	}
 
-	_, err := wrapper.Execute(map[string]any{"key": "value"})
+	_, err := wrapper.Execute(context.Background(), map[string]any{"key": "value"})
 	if err == nil {
-		t.Error("expected error due to cancelled context or nil client, got nil")
+		t.Error("expected error due to nil client, got nil")
 	}
 }
 

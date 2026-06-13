@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import {
   Table, Button, Tag, Badge, Popconfirm, Drawer, Form, Input,
-  Select, InputNumber, Space, Descriptions, Tabs, Alert, message,
+  Select, InputNumber, Space, Descriptions, Tabs, Alert, message, Typography, Card,
 } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, ApiOutlined } from '@ant-design/icons';
 import {
   getMCPServers, connectMCPServer, disconnectMCPServer,
   getMCPServerTools, getMCPServerResources,
 } from '../services/api';
+import { COMPACT_PAGE_SIZE, MCP_DEFAULT_TIMEOUT_SEC } from '../constants';
 
+const { Title, Text } = Typography;
 const TRANSPORT_COLORS = { stdio: 'blue', sse: 'green', http: 'cyan' };
 const STATUS_MAP = { connected: 'success', disconnected: 'default', error: 'error' };
+const STATUS_LABELS = { connected: '已连接', disconnected: '未连接', error: '错误' };
 
 function parseArgs(str) {
   return (str || '').split(/\s+/).filter(Boolean);
@@ -44,7 +47,7 @@ function ConnectDrawer({ open, onClose, onSuccess }) {
         timeout: (values.timeout_sec || 30) * 1e9,
       };
       await connectMCPServer(cfg);
-      message.success('服务器连接成功');
+      message.success('MCP 服务器连接成功');
       form.resetFields();
       onSuccess();
     } catch (err) {
@@ -74,8 +77,8 @@ function ConnectDrawer({ open, onClose, onSuccess }) {
         <Form.Item label="Transport" name="transport" rules={[{ required: true, message: '请选择 Transport' }]}>
           <Select options={[
             { value: 'stdio', label: 'stdio（子进程）' },
-            { value: 'sse',   label: 'sse（SSE 长连接）' },
-            { value: 'http',  label: 'http（HTTP 轮询）' },
+            { value: 'sse', label: 'SSE（长连接）' },
+            { value: 'http', label: 'HTTP（轮询）' },
           ]} />
         </Form.Item>
         {transport === 'stdio' && (
@@ -83,7 +86,7 @@ function ConnectDrawer({ open, onClose, onSuccess }) {
             <Form.Item label="命令（command）" name="command" rules={[{ required: true, message: '请输入命令' }]}>
               <Input placeholder="node" />
             </Form.Item>
-            <Form.Item label="参数（args，空格分隔）" name="args">
+            <Form.Item label="参数（空格分隔）" name="args">
               <Input placeholder="server.js --port 3000" />
             </Form.Item>
             <Form.Item label="环境变量（每行 KEY=VALUE）" name="env">
@@ -96,7 +99,7 @@ function ConnectDrawer({ open, onClose, onSuccess }) {
             <Input placeholder="http://localhost:3000/mcp" />
           </Form.Item>
         )}
-        <Form.Item label="超时（秒）" name="timeout_sec" initialValue={30}>
+        <Form.Item label="超时（秒）" name="timeout_sec" initialValue={MCP_DEFAULT_TIMEOUT_SEC}>
           <InputNumber min={1} max={300} style={{ width: '100%' }} />
         </Form.Item>
         <Form.Item>
@@ -134,13 +137,13 @@ function ServerDetailDrawer({ server, onClose }) {
   }, [server]);
 
   const toolCols = [
-    { title: '名称', dataIndex: 'name', width: 200 },
+    { title: '名称', dataIndex: 'name', width: 200, render: (v) => <Text strong>{v}</Text> },
     { title: '描述', dataIndex: 'description', ellipsis: true },
   ];
   const resCols = [
     { title: 'URI', dataIndex: 'uri', width: 200, ellipsis: true },
     { title: '名称', dataIndex: 'name' },
-    { title: 'MIME', dataIndex: 'mimeType' },
+    { title: 'MIME', dataIndex: 'mimeType', width: 120 },
   ];
 
   const tabItems = [
@@ -174,15 +177,16 @@ function ServerDetailDrawer({ server, onClose }) {
     >
       {server && (
         <>
-          <Descriptions size="small" column={4} style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="ID">{server.id}</Descriptions.Item>
+          <Descriptions size="small" column={2} bordered style={{ marginBottom: 20 }}>
+            <Descriptions.Item label="ID" span={2}><Text code>{server.id}</Text></Descriptions.Item>
             <Descriptions.Item label="Transport">
               <Tag color={TRANSPORT_COLORS[server.transport]}>{server.transport}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label="状态">
-              <Badge status={STATUS_MAP[server.status] || 'default'} text={server.status} />
+              <Badge status={STATUS_MAP[server.status] || 'default'} text={STATUS_LABELS[server.status] || server.status} />
             </Descriptions.Item>
             <Descriptions.Item label="版本">{server.version || '-'}</Descriptions.Item>
+            <Descriptions.Item label="工具数">{tools.length}</Descriptions.Item>
           </Descriptions>
           <Tabs defaultActiveKey="tools" items={tabItems} />
         </>
@@ -224,31 +228,34 @@ export default function MCPServersPage() {
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', width: 200, ellipsis: true },
-    { title: 'ID', dataIndex: 'id', ellipsis: true, width: 180 },
     {
-      title: 'Transport', dataIndex: 'transport', width: 100,
+      title: '名称', dataIndex: 'name', width: 200,
+      render: (v) => <Text strong>{v}</Text>,
+    },
+    {
+      title: 'Transport', dataIndex: 'transport', width: 110,
       render: (v) => <Tag color={TRANSPORT_COLORS[v]}>{v}</Tag>,
     },
     {
       title: '状态', dataIndex: 'status', width: 110,
-      render: (v) => <Badge status={STATUS_MAP[v] || 'default'} text={v} />,
+      render: (v) => <Badge status={STATUS_MAP[v] || 'default'} text={STATUS_LABELS[v] || v} />,
     },
     {
-      title: 'Tools', width: 80,
-      render: (_, r) => r.tools?.length ?? '-',
+      title: '工具', width: 80, align: 'right',
+      render: (_, r) => <Text type="secondary">{r.tools?.length ?? '-'}</Text>,
     },
     {
       title: '操作', width: 160,
       render: (_, r) => (
-        <Space>
-          <Button size="small" onClick={() => setDetailServer(r)}>查看</Button>
+        <Space size={4}>
+          <Button size="small" type="link" onClick={() => setDetailServer(r)} style={{ padding: '0 4px' }}>详情</Button>
           <Popconfirm
             title="确认断开此服务器连接？"
             onConfirm={() => handleDisconnect(r.id)}
             disabled={r.status !== 'connected'}
+            okText="断开" cancelText="取消"
           >
-            <Button size="small" danger disabled={r.status !== 'connected'}>断开</Button>
+            <Button size="small" type="link" danger disabled={r.status !== 'connected'} style={{ padding: '0 4px' }}>断开</Button>
           </Popconfirm>
         </Space>
       ),
@@ -256,20 +263,30 @@ export default function MCPServersPage() {
   ];
 
   return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <span style={{ fontSize: 16, fontWeight: 500 }}>MCP 服务器</span>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setConnectOpen(true)}>
-          连接服务器
-        </Button>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>MCP 服务器</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>管理外部工具服务器连接</Text>
+        </div>
+        <Space size={8}>
+          <Button icon={<ReloadOutlined />} onClick={fetchServers} loading={loading}>刷新</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setConnectOpen(true)}>连接服务器</Button>
+        </Space>
       </div>
-      <Table
-        dataSource={servers}
-        columns={columns}
-        rowKey="id"
-        loading={loading}
-        locale={{ emptyText: '暂无已连接的 MCP 服务器' }}
-      />
+
+      <Card style={{ borderRadius: 12, border: '1px solid #f0f0f0' }} styles={{ body: { padding: 0 } }}>
+        <Table
+          dataSource={servers}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          locale={{ emptyText: '暂无已连接的 MCP 服务器' }}
+          pagination={{ pageSize: COMPACT_PAGE_SIZE, showTotal: (t) => `共 ${t} 台`, style: { padding: '12px 16px' } }}
+          style={{ borderRadius: 12, overflow: 'hidden' }}
+        />
+      </Card>
+
       <ConnectDrawer
         open={connectOpen}
         onClose={() => setConnectOpen(false)}
@@ -279,6 +296,6 @@ export default function MCPServersPage() {
         server={detailServer}
         onClose={() => setDetailServer(null)}
       />
-    </>
+    </div>
   );
 }

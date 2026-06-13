@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/handler"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/middleware"
@@ -25,6 +24,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/memory"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/orchestrator"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/textchunk"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	pkgcrypto "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/crypto"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
 	vectorstore "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/vector"
@@ -43,6 +43,7 @@ func SetupRouter(
 	db *pgxpool.Pool,
 	rdb *goredis.Client,
 	capGW capgateway.CapabilityGateway,
+	skillAdapter capgateway.Adapter,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -150,7 +151,7 @@ func SetupRouter(
 	chunker := textchunk.NewChunker(logger)
 
 	// Connect to external services with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), constants.RouterHealthTimeout)
 	defer cancel()
 
 	if err := vectorStore.Connect(ctx); err != nil {
@@ -174,20 +175,23 @@ func SetupRouter(
 		agentRegistry.SetCapGateway(capGW)
 	}
 	var execStore *agent.ExecutionStore
+	var chatStore agent.ChatStore
 	if db != nil {
 		execStore = agent.NewExecutionStore(db)
+		chatStore = agent.NewPgChatStore(db)
 	}
-	agentHandler := handler.NewAgentHandler(agentRegistry, logger, gateway, metrics, execStore, db, aesKey, gatewayCache)
+	// Initialize MCP system
+	mcpManager := mcp.NewClientManager(logger, nil, db)
+	mcpRegistry := mcp.NewMCPSkillRegistry(mcpManager, logger)
+	mcpHandler := handler.NewMCPHandler(mcpRegistry, mcpManager, logger)
+
+	agentHandler := handler.NewAgentHandler(agentRegistry, logger, gateway, metrics, execStore, db, aesKey, gatewayCache, ragService, mcpRegistry, skillAdapter, registry)
+	chatHandler := handler.NewChatHandler(chatStore, logger)
 
 	// Initialize memory system
 	memoryConfig := memory.DefaultMemoryConfig()
 	memoryManager := memory.NewMemoryManager(memoryConfig, logger, nil, nil, nil, db)
 	memoryHandler := handler.NewMemoryHandler(memoryManager, logger)
-
-	// Initialize MCP system
-	mcpManager := mcp.NewClientManager(logger, nil, db)
-	mcpRegistry := mcp.NewMCPSkillRegistry(mcpManager, logger)
-	mcpHandler := handler.NewMCPHandler(mcpRegistry, mcpManager, logger)
 
 	// Skill endpoints — JWT + InjectTenantContext required (same pattern as agents)
 	var skillMW []gin.HandlerFunc
@@ -215,8 +219,21 @@ func SetupRouter(
 		agents.GET("/executions", agentHandler.ListExecutions)
 		agents.GET("/:id", agentHandler.GetAgent)
 		agents.POST("/:id/execute", requireActive, agentHandler.ExecuteAgent)
+		agents.POST("/:id/execute/stream", requireActive, agentHandler.ExecuteAgentStream)
 		agents.PUT("/:id", requireActive, agentHandler.UpdateAgent)
 		agents.DELETE("/:id", requireActive, agentHandler.DeleteAgent)
+		// Chat conversation endpoints scoped to an agent
+		agents.POST("/:id/conversations", chatHandler.CreateConversation)
+		agents.GET("/:id/conversations", chatHandler.ListConversations)
+	}
+
+	// Conversation-level endpoints (not agent-scoped)
+	conversations := router.Group("/conversations", agentMiddlewares...)
+	{
+		conversations.PATCH("/:convID", chatHandler.RenameConversation)
+		conversations.DELETE("/:convID", chatHandler.DeleteConversation)
+		conversations.GET("/:convID/messages", chatHandler.ListMessages)
+		conversations.POST("/:convID/messages", chatHandler.AddMessage)
 	}
 
 	// Knowledge endpoints — 所有路由均需 JWT + 租户上下文
@@ -261,8 +278,13 @@ func SetupRouter(
 		mem.GET("/summary/:session_id", memoryHandler.GetSummary)
 	}
 
-	// MCP endpoints
-	mcpHandler.RegisterRoutes(router, requireActive)
+	// MCP endpoints — write routes need JWT + tenant context (same pattern as agents/skills)
+	var mcpWriteMW []gin.HandlerFunc
+	if jwtSvc != nil {
+		mcpWriteMW = append(mcpWriteMW, auth.JWTMiddleware(jwtSvc), middleware.InjectTenantContext())
+	}
+	mcpWriteMW = append(mcpWriteMW, requireActive)
+	mcpHandler.RegisterRoutes(router, mcpWriteMW...)
 
 	return router
 }

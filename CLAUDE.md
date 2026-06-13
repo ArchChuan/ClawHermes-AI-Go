@@ -59,10 +59,81 @@ go test -v -race -timeout 30s ./...      # PR 前完整跑
 npm run lint && npm run build            # 前端 PR 前
 ```
 
+### 常量规范（A 类：业务/配置数字）
+
+**后端（Go）**
+
+| 作用域 | 存放位置 | 命名 |
+|--------|----------|------|
+| 跨包共享（超时/TTL/分页/重试/Pool） | `pkg/constants/<domain>.go` | `Default*` / `Max*` / `Min*` / `*Timeout` / `*TTL` |
+| 包内共享（≥2 个文件使用） | `internal/<pkg>/defaults.go` | 同上，包级 unexported 即可 |
+| 单文件内使用 | 原文件 `const` 块 | 同上 |
+
+规则：
+
+- `pkg/constants/` 禁止 import `internal/`（单向依赖）
+- 禁止在函数签名 / 结构体字面量中直接写魔法数字（timeouts、TTL、pageSize、topK、chunkSize、poolSize、retries）
+- 纯 UI 样式数字（spacing、border-radius 等）不在此范围
+
+**前端（JS/JSX）**
+
+所有行为常量集中在 `web/src/constants/index.js`，按前缀分组：
+
+```js
+// API / 网络
+API_DEFAULT_TIMEOUT_MS   AGENT_EXEC_TIMEOUT_MS
+
+// 分页
+DEFAULT_PAGE_SIZE   COMPACT_PAGE_SIZE   PAGE_SIZE_OPTIONS
+
+// MCP
+MCP_DEFAULT_TIMEOUT_SEC   MCP_MAX_TIMEOUT_SEC
+
+// Skill
+SKILL_DEFAULT_TEMPERATURE   SKILL_DEFAULT_MAX_TOKENS   SKILL_DEFAULT_TIMEOUT_SEC
+
+// Memory
+MEMORY_SEARCH_LIMIT
+```
+
+规则：
+
+- 所有页面通过 `import { ... } from '../constants'` 引用，禁止页面内直接硬编码上述数字
+- 常量名全大写下划线，值加单位后缀（`_MS` / `_SEC` / `_SIZE`）
+
+---
+
 ### Go 规范
 
 - 行宽 ≤120 · import 顺序：stdlib → third-party → internal · 圈复杂度 ≤10
-- 日志：Zap only，结构化字段 `request_id / user_id / tenant_id / operation`，禁止 `fmt.Print`，禁止记录密码/token/PII
+- 日志：Zap only，禁止 `fmt.Print`；详见下方日志规范
+
+### 日志规范（参考阿里/字节/腾讯标准）
+
+**初始化**：`observability.NewLogger(env)` — production → JSON，其余 → console+color；固定字段 `app/env/host` 在 init 时注入。
+·
+**字段分层**
+
+| 层 | 字段 | 注入位置 |
+|----|------|----------|
+| 链路 | `request_id` `trace_id` `tenant_id` `user_id` | TraceMiddleware per-request |
+| LLM | `model` `provider` `prompt_tokens` `completion_tokens` `latency_ms` | `llm.complete` 事件 |
+| ReAct | `trace_id` `tenant_id` `model` `step` `tokens` `tool_name` `latency_ms` | `react.llm` / `react.tool` 事件 |
+| 访问 | `method` `path` `status` `latency_ms` `client_ip` `ua` | TraceMiddleware after |
+
+**事件命名**：`layer.operation`，如 `llm.complete` · `react.llm` · `react.tool` · `agent execution started`
+
+**级别规则**
+
+| 级别 | 场景 |
+|------|------|
+| DEBUG | 开发调试，production 不输出 |
+| INFO | 正常业务路径（HTTP < 400，LLM 成功，ReAct step） |
+| WARN | 可预期异常（HTTP 4xx，重试中） |
+| ERROR | 需处理异常（HTTP 5xx，外部调用失败）；自动附加 stacktrace |
+
+**安全红线**：禁止记录 `password / token / api_key / PII`；禁止打印原始 HTTP response body（只记 status code + model）
+
 - 错误：`fmt.Errorf("operation: %w", err)` 逐层包裹；瞬态错误指数退避（base 100ms，上限 10s）；外部依赖加熔断
 - Handler 只解析请求 + 调 Service + 组装响应；业务逻辑在 Service 层
 - 覆盖率 ≥80%，表驱动测试，mock 所有外部依赖，完整套件开 `-race`

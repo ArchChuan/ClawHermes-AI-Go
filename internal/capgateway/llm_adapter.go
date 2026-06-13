@@ -13,6 +13,7 @@ import (
 // LLMCompleter is the subset of llmgateway.Gateway needed by LLMAdapter.
 type LLMCompleter interface {
 	Complete(ctx context.Context, req *llmgateway.CompletionRequest) (*llmgateway.CompletionResponse, error)
+	CompleteStream(ctx context.Context, req *llmgateway.CompletionRequest, onToken func(string)) (*llmgateway.CompletionResponse, error)
 }
 
 // LLMAdapter bridges CapabilityRequest → llmgateway and back.
@@ -28,7 +29,15 @@ func NewLLMAdapter(gw LLMCompleter, logger *zap.Logger) *LLMAdapter {
 func (a *LLMAdapter) Route(ctx context.Context, req CapabilityRequest) (CapabilityResponse, error) {
 	start := time.Now()
 	llmReq := buildLLMRequest(req.LLM)
-	raw, err := a.gw.Complete(ctx, llmReq)
+	var (
+		raw *llmgateway.CompletionResponse
+		err error
+	)
+	if req.TokenStream != nil {
+		raw, err = a.gw.CompleteStream(ctx, llmReq, req.TokenStream)
+	} else {
+		raw, err = a.gw.Complete(ctx, llmReq)
+	}
 	if err != nil {
 		return CapabilityResponse{}, fmt.Errorf("llm_adapter: %w", err)
 	}

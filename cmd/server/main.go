@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api"
+	agentpkg "github.com/byteBuilderX/ClawHermes-AI-Go/internal/agent"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/capgateway"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/config"
 	harnesspkg "github.com/byteBuilderX/ClawHermes-AI-Go/internal/harness"
@@ -21,6 +22,7 @@ import (
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/migration"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/orchestrator"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/skillgateway"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/observability"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/postgres"
 	pkgredis "github.com/byteBuilderX/ClawHermes-AI-Go/pkg/redis"
@@ -30,21 +32,22 @@ import (
 )
 
 func main() {
+	const chatCleanupInterval = 24 * time.Hour
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		log.Printf("Warning: could not load .env file: %v", err)
 	}
 
-	logger, err := zap.NewProduction()
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	logger, err := observability.NewLogger(os.Getenv("APP_ENV"))
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
 	defer logger.Sync() //nolint:errcheck
-
-	// Load configuration
-	cfg, err := config.Load()
-	if err != nil {
-		logger.Fatal("Failed to load config", zap.Error(err))
-	}
 
 	// Initialize PostgreSQL
 	ctx := context.Background()
@@ -167,12 +170,55 @@ func main() {
 	skillAdapter := capgateway.NewSkillAdapter(skillGW, logger)
 	capGW := capgateway.NewDefaultCapabilityGateway(llmAdapter, skillAdapter, logger)
 
+	// 5b. Chat expiry cleanup — runs daily, removes conversations inactive for >30 days.
+	chatCleanupComponent := harnesspkg.NewSimpleComponent("chat-cleanup", logger,
+		harnesspkg.WithStartFunc(func(ctx context.Context) error {
+			chatStore := agentpkg.NewPgChatStore(pgPool.DB())
+			go func() {
+				ticker := time.NewTicker(chatCleanupInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						rows, err := pgPool.DB().Query(ctx,
+							`SELECT id::text FROM tenants WHERE deleted_at IS NULL`)
+						if err != nil {
+							logger.Warn("chat-cleanup: list tenants", zap.Error(err))
+							continue
+						}
+						var tids []string
+						for rows.Next() {
+							var tid string
+							if err := rows.Scan(&tid); err == nil {
+								tids = append(tids, tid)
+							}
+						}
+						rows.Close()
+						for _, tid := range tids {
+							if err := chatStore.CleanupExpired(ctx, tid); err != nil {
+								logger.Warn("chat-cleanup: cleanup tenant",
+									zap.String("tenant_id", tid), zap.Error(err))
+							}
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+			return nil
+		}),
+		harnesspkg.WithStopFunc(func(_ context.Context) error { return nil }),
+	)
+	if err := appHarness.Register(chatCleanupComponent); err != nil {
+		logger.Fatal("Failed to register chat-cleanup component", zap.Error(err))
+	}
+
 	// 6. HTTP Server component
-	router := api.SetupRouter(cfg, logger, registry, gateway, pgPool.DB(), redisClient.Client(), capGW)
+	router := api.SetupRouter(cfg, logger, registry, gateway, pgPool.DB(), redisClient.Client(), capGW, skillAdapter)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: constants.HTTPReadHeaderTimeout,
 	}
 	httpServer := harnesspkg.NewSimpleComponent("http-server", logger,
 		harnesspkg.WithStartFunc(func(ctx context.Context) error {
@@ -190,7 +236,7 @@ func main() {
 		harnesspkg.WithStopFunc(func(ctx context.Context) error {
 			logger.Info("Stopping HTTP server")
 
-			shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(ctx, constants.HTTPShutdownTimeout)
 			defer cancel()
 
 			if err := srv.Shutdown(shutdownCtx); err != nil {

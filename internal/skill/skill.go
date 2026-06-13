@@ -1,6 +1,8 @@
 // Package skill provides skill execution framework.
 package skill
 
+import "context"
+
 type Skill interface {
 	GetID() string
 	GetName() string
@@ -33,5 +35,5 @@ func (s *BaseSkill) GetType() string {
 
 type SkillExecutor interface {
 	Skill
-	Execute(input interface{}) (interface{}, error)
+	Execute(ctx context.Context, input interface{}) (interface{}, error)
 }

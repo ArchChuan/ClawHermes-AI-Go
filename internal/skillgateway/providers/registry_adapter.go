@@ -46,5 +46,5 @@ func (a *RegistryAdapter) Execute(ctx context.Context, skillID string, input any
 	if !ok {
 		return nil, fmt.Errorf("skill %s does not implement SkillExecutor", skillID)
 	}
-	return executor.Execute(input)
+	return executor.Execute(ctx, input)
 }

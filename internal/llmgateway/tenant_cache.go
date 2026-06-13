@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// TenantGatewayCache is a TTL-based in-memory cache mapping tenantID → *Gateway.
+// TenantGatewayCache is a TTL-based in-memory cache mapping tenantID → *Gateway + decrypted API keys.
 type TenantGatewayCache struct {
 	mu      sync.Mutex
 	entries map[string]*cacheEntry
@@ -13,6 +13,7 @@ type TenantGatewayCache struct {
 
 type cacheEntry struct {
 	gateway   *Gateway
+	apiKeys   map[string]string
 	expiresAt time.Time
 }
 
@@ -23,26 +24,26 @@ func NewTenantGatewayCache() *TenantGatewayCache {
 	}
 }
 
-// Get returns the cached Gateway for tenantID, or (nil, false) on miss/expiry.
-func (c *TenantGatewayCache) Get(tenantID string) (*Gateway, bool) {
+// Get returns the cached Gateway and decrypted API keys for tenantID, or (nil, nil, false) on miss/expiry.
+func (c *TenantGatewayCache) Get(tenantID string) (*Gateway, map[string]string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.entries[tenantID]
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	if time.Now().After(e.expiresAt) {
 		delete(c.entries, tenantID)
-		return nil, false
+		return nil, nil, false
 	}
-	return e.gateway, true
+	return e.gateway, e.apiKeys, true
 }
 
-// Set stores a Gateway with the given TTL.
-func (c *TenantGatewayCache) Set(tenantID string, gw *Gateway, ttl time.Duration) {
+// Set stores a Gateway and its decrypted API keys with the given TTL.
+func (c *TenantGatewayCache) Set(tenantID string, gw *Gateway, keys map[string]string, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[tenantID] = &cacheEntry{gateway: gw, expiresAt: time.Now().Add(ttl)}
+	c.entries[tenantID] = &cacheEntry{gateway: gw, apiKeys: keys, expiresAt: time.Now().Add(ttl)}
 }
 
 // Invalidate removes the cached entry for tenantID immediately.

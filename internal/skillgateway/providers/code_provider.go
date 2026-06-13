@@ -29,6 +29,6 @@ func (p *CodeSkillProvider) SkillType() string {
 	return "code"
 }
 
-func (p *CodeSkillProvider) Execute(_ context.Context, _ string, input any) (any, error) {
-	return p.s.Execute(input)
+func (p *CodeSkillProvider) Execute(ctx context.Context, _ string, input any) (any, error) {
+	return p.s.Execute(ctx, input)
 }

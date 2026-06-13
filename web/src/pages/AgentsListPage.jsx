@@ -1,22 +1,88 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Table,
-  Button,
-  Space,
-  Tag,
-  Modal,
-  Card,
-  Typography,
-  Input,
-  notification,
-  message
+  Button, Space, Tag, Input, Modal, message, Typography, Card,
+  Row, Col, Tooltip, Popconfirm, Badge, Empty, Skeleton,
 } from 'antd';
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, RobotOutlined, EditOutlined } from '@ant-design/icons';
+import {
+  PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined,
+  RobotOutlined, SearchOutlined, ThunderboltOutlined,
+} from '@ant-design/icons';
 import { getAllAgents, executeAgent, deleteAgent } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
-const { Search } = Input;
-const { Title } = Typography;
+const { Title, Text, Paragraph } = Typography;
+const { TextArea } = Input;
+
+const MODEL_COLORS = { 'gpt-4': '#1677ff', 'gpt-3.5-turbo': '#52c41a', 'glm-4': '#722ed1', 'glm-4-flash': '#13c2c2', 'qwen-plus': '#fa8c16', 'qwen-turbo': '#fa541c' };
+const modelColor = (m) => MODEL_COLORS[m] || '#8c8c8c';
+
+const AgentCard = ({ agent, onExecute, onDelete, onEdit }) => (
+  <Card
+    style={{ borderRadius: 12, border: '1px solid #f0f0f0', height: '100%', display: 'flex', flexDirection: 'column' }}
+    styles={{ body: { padding: 20, flex: 1, display: 'flex', flexDirection: 'column' } }}
+    hoverable
+  >
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+      <div style={{
+        width: 40, height: 40, borderRadius: 10,
+        background: 'linear-gradient(135deg, #e6f4ff 0%, #f9f0ff 100%)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <RobotOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+      </div>
+      <Tag
+        style={{
+          border: 'none', borderRadius: 6, fontSize: 11,
+          background: `${modelColor(agent.llmModel)}18`,
+          color: modelColor(agent.llmModel),
+          fontWeight: 500,
+        }}
+      >
+        {agent.llmModel}
+      </Tag>
+    </div>
+
+    <Text strong style={{ fontSize: 15, marginBottom: 4, display: 'block' }}>{agent.name}</Text>
+    <Paragraph
+      type="secondary"
+      ellipsis={{ rows: 2 }}
+      style={{ fontSize: 13, marginBottom: 12, flex: 1, marginTop: 0 }}
+    >
+      {agent.description || '暂无描述'}
+    </Paragraph>
+
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid #f5f5f5' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <ThunderboltOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {agent.allowedSkills?.length || 0} 技能
+        </Text>
+      </div>
+      <Space size={4}>
+        <Tooltip title="执行">
+          <Button
+            type="text" size="small" icon={<PlayCircleOutlined />}
+            onClick={() => onExecute(agent)}
+            style={{ color: '#1677ff' }}
+          />
+        </Tooltip>
+        <Tooltip title="编辑">
+          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onEdit(agent)} />
+        </Tooltip>
+        <Tooltip title="删除">
+          <Popconfirm
+            title={`确定删除 "${agent.name}" 吗？`}
+            onConfirm={() => onDelete(agent.id, agent.name)}
+            okText="删除" okType="danger" cancelText="取消"
+          >
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Tooltip>
+      </Space>
+    </div>
+  </Card>
+);
 
 const AgentsListPage = () => {
   const navigate = useNavigate();
@@ -27,246 +93,168 @@ const AgentsListPage = () => {
   const [executionResult, setExecutionResult] = useState(null);
   const [showResultModal, setShowResultModal] = useState(false);
   const [taskModalVisible, setTaskModalVisible] = useState(false);
-  const [currentTask, setCurrentTask] = useState({ query: '', context: {}, variables: {} });
+  const [taskQuery, setTaskQuery] = useState('');
+  const [taskContext, setTaskContext] = useState('{}');
+  const [executing, setExecuting] = useState(false);
 
   useEffect(() => {
-    fetchAgents();
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await getAllAgents();
+        if (!cancelled) setAgents(res.data.agents || []);
+      } catch {
+        if (!cancelled) message.error('获取 Agent 列表失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const fetchAgents = async () => {
-    try {
-      setLoading(true);
-      const response = await getAllAgents();
-      setAgents(response.data.agents || []);
-    } catch (error) {
-      console.error('Error fetching agents:', error);
-      notification.error({
-        message: '获取代理列表失败',
-        description: error.message,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExecuteAgent = (agent) => {
-    setExecutingAgent(agent);
-    setTaskModalVisible(true);
-  };
-
   const handleTaskSubmit = async () => {
-    if (!executingAgent) return;
-    
+    if (!executingAgent || !taskQuery.trim()) { message.warning('请输入任务内容'); return; }
+    setExecuting(true);
+    let ctx = {};
+    try { ctx = JSON.parse(taskContext || '{}'); } catch { /* ignore */ }
     try {
-      const response = await executeAgent(executingAgent.id, currentTask);
-      setExecutionResult(response.data);
+      const res = await executeAgent(executingAgent.id, { query: taskQuery, context: ctx, variables: {} });
+      setExecutionResult(res.data);
       setTaskModalVisible(false);
       setShowResultModal(true);
-    } catch (error) {
-      console.error('Error executing agent:', error);
-      setExecutionResult({ error: error.message });
+    } catch (err) {
+      setExecutionResult({ error: err.response?.data?.error || err.message });
       setTaskModalVisible(false);
       setShowResultModal(true);
+    } finally {
+      setExecuting(false);
     }
   };
 
-  const handleDeleteAgent = (agentId, agentName) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除代理 "${agentName}" 吗？此操作不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteAgent(agentId);
-          message.success('代理删除成功');
-          fetchAgents();
-        } catch (error) {
-          if (error.response?.status !== 403) {
-            message.error(error.response?.data?.error || '删除失败');
-          }
-        }
-      },
-    });
+  const handleDeleteAgent = async (agentId, agentName) => {
+    try {
+      await deleteAgent(agentId);
+      message.success('Agent 已删除');
+      setAgents(prev => prev.filter(a => a.id !== agentId));
+    } catch (err) {
+      if (err.response?.status !== 403) {
+        message.error(err.response?.data?.error || '删除失败');
+      }
+    }
   };
 
-  // 过滤代理列表
-  const filteredAgents = agents.filter(agent =>
-    agent.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    agent.description.toLowerCase().includes(searchText.toLowerCase())
+  const filteredAgents = agents.filter(a =>
+    a.name.toLowerCase().includes(searchText.toLowerCase()) ||
+    (a.description || '').toLowerCase().includes(searchText.toLowerCase())
   );
-
-  const columns = [
-    {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 200,
-      ellipsis: true,
-    },
-    {
-      title: '代理名称',
-      dataIndex: 'name',
-      key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
-    },
-    {
-      title: '模型',
-      dataIndex: 'llmModel',
-      key: 'llmModel',
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '允许技能数',
-      dataIndex: 'allowedSkills',
-      key: 'allowedSkillsCount',
-      render: (text, record) => record.allowedSkills?.length || 0,
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date) => date ? new Date(date).toLocaleString() : '-',
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_, record) => (
-        <Space size="middle">
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/agents/${record.id}/edit`)}
-          >
-            编辑
-          </Button>
-          <Button
-            type="link"
-            icon={<PlayCircleOutlined />}
-            onClick={() => handleExecuteAgent(record)}
-          >
-            执行
-          </Button>
-          <Button 
-            type="link" 
-            danger 
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteAgent(record.id, record.name)}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
-    },
-  ];
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <RobotOutlined style={{ fontSize: '24px', marginRight: '10px' }} />
-          <Title level={2} style={{ margin: 0 }}>智能代理管理</Title>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>Agent 列表</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>管理所有智能 Agent</Text>
         </div>
-        <Space>
-          <Search
-            placeholder="搜索代理名称或描述"
+        <Space size={8}>
+          <Input
+            placeholder="搜索 Agent..."
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            style={{ width: 300 }}
+            allowClear
+            style={{ width: 220 }}
           />
-          <Button type="primary" icon={<PlusOutlined />} href="/agents/create">
-            创建代理
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/agents/create')}>
+            创建 Agent
           </Button>
         </Space>
       </div>
 
-      <Card>
-        <Table 
-          dataSource={filteredAgents} 
-          columns={columns} 
-          rowKey="id" 
-          loading={loading}
-          pagination={{ 
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `总计 ${total} 条`,
-          }}
-        />
-      </Card>
+      {loading ? (
+        <Row gutter={[16, 16]}>
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={i}>
+              <Card style={{ borderRadius: 12, border: '1px solid #f0f0f0' }} styles={{ body: { padding: 20 } }}>
+                <Skeleton active avatar paragraph={{ rows: 2 }} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      ) : filteredAgents.length === 0 ? (
+        <Empty
+          image={<RobotOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
+          description={searchText ? '没有找到匹配的 Agent' : '还没有 Agent，点击右上角创建'}
+          style={{ padding: '60px 0' }}
+        >
+          {!searchText && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/agents/create')}>
+              创建第一个 Agent
+            </Button>
+          )}
+        </Empty>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {filteredAgents.map(agent => (
+            <Col xs={24} sm={12} lg={8} xl={6} key={agent.id}>
+              <AgentCard
+                agent={agent}
+                onExecute={(a) => { setExecutingAgent(a); setTaskQuery(''); setTaskContext('{}'); setTaskModalVisible(true); }}
+                onDelete={handleDeleteAgent}
+                onEdit={(a) => navigate(`/agents/${a.id}/edit`)}
+              />
+            </Col>
+          ))}
+        </Row>
+      )}
 
-      {/* 任务输入模态框 */}
       <Modal
-        title={`执行代理 - ${executingAgent?.name}`}
+        title={<Space><PlayCircleOutlined />{`执行 ${executingAgent?.name}`}</Space>}
         open={taskModalVisible}
         onOk={handleTaskSubmit}
         onCancel={() => setTaskModalVisible(false)}
-        width={800}
+        okText="执行" cancelText="取消"
+        confirmLoading={executing}
+        width={560}
+        destroyOnClose
       >
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8 }}>任务查询:</label>
-          <Input.TextArea
-            rows={4}
-            value={currentTask.query}
-            onChange={(e) => setCurrentTask({...currentTask, query: e.target.value})}
-            placeholder="请输入您希望代理执行的任务..."
-          />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8 }}>上下文 (可选):</label>
-          <Input.TextArea
-            rows={3}
-            value={JSON.stringify(currentTask.context || {}, null, 2)}
-            onChange={(e) => {
-              try {
-                const parsed = JSON.parse(e.target.value);
-                setCurrentTask({...currentTask, context: parsed});
-              } catch (e) {
-                // 如果解析失败，则不更新
-              }
-            }}
-            placeholder='输入上下文信息，例如: {"previous_result": "some_value"}'
-          />
-        </div>
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          <div>
+            <div style={{ marginBottom: 6, fontWeight: 500 }}>任务内容 <span style={{ color: '#ff4d4f' }}>*</span></div>
+            <TextArea
+              rows={4}
+              value={taskQuery}
+              onChange={(e) => setTaskQuery(e.target.value)}
+              placeholder="输入你希望 Agent 执行的任务..."
+              autoFocus
+            />
+          </div>
+          <div>
+            <div style={{ marginBottom: 6, fontWeight: 500 }}>上下文 <Text type="secondary" style={{ fontWeight: 400, fontSize: 12 }}>（JSON，可选）</Text></div>
+            <TextArea
+              rows={3}
+              value={taskContext}
+              onChange={(e) => setTaskContext(e.target.value)}
+              placeholder='{"key": "value"}'
+              style={{ fontFamily: 'monospace', fontSize: 13 }}
+            />
+          </div>
+        </Space>
       </Modal>
 
-      {/* 执行结果模态框 */}
       <Modal
-        title={`执行结果 - ${executingAgent?.name}`}
+        title={<Space><Badge status={executionResult?.error ? 'error' : 'success'} />{`执行结果 — ${executingAgent?.name}`}</Space>}
         open={showResultModal}
-        onCancel={() => {
-          setShowResultModal(false);
-          setExecutingAgent(null);
-          setExecutionResult(null);
-        }}
-        footer={[
-          <Button 
-            key="close" 
-            onClick={() => {
-              setShowResultModal(false);
-              setExecutingAgent(null);
-              setExecutionResult(null);
-            }}
-          >
-            关闭
-          </Button>
-        ]}
-        width={800}
+        onCancel={() => { setShowResultModal(false); setExecutingAgent(null); setExecutionResult(null); }}
+        footer={<Button onClick={() => { setShowResultModal(false); setExecutingAgent(null); setExecutionResult(null); }}>关闭</Button>}
+        width={680}
+        destroyOnClose
       >
-        <pre style={{ 
-          background: '#f5f5f5', 
-          padding: '16px', 
-          borderRadius: '4px',
-          maxHeight: '400px',
-          overflow: 'auto',
-          whiteSpace: 'pre-wrap',
-          wordWrap: 'break-word'
+        <pre style={{
+          background: '#f5f7fa', padding: 16, borderRadius: 8,
+          maxHeight: 400, overflow: 'auto',
+          whiteSpace: 'pre-wrap', wordWrap: 'break-word',
+          fontSize: 13, lineHeight: 1.6,
         }}>
           {JSON.stringify(executionResult, null, 2)}
         </pre>

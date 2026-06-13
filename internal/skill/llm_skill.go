@@ -11,11 +11,15 @@ import (
 
 type LLMSkill struct {
 	*BaseSkill
-	gateway *llmgateway.Gateway
-	logger  *zap.Logger
+	SystemPrompt string
+	Model        string
+	Temperature  float32
+	MaxTokens    int
+	gateway      *llmgateway.Gateway
+	logger       *zap.Logger
 }
 
-func NewLLMSkill(id, name, description string, gateway *llmgateway.Gateway, logger *zap.Logger) *LLMSkill {
+func NewLLMSkill(id, name, description, systemPrompt, model string, temperature float32, maxTokens int, gateway *llmgateway.Gateway, logger *zap.Logger) *LLMSkill {
 	return &LLMSkill{
 		BaseSkill: &BaseSkill{
 			ID:          id,
@@ -23,51 +27,66 @@ func NewLLMSkill(id, name, description string, gateway *llmgateway.Gateway, logg
 			Description: description,
 			Type:        "llm",
 		},
-		gateway: gateway,
-		logger:  logger,
+		SystemPrompt: systemPrompt,
+		Model:        model,
+		Temperature:  temperature,
+		MaxTokens:    maxTokens,
+		gateway:      gateway,
+		logger:       logger,
 	}
 }
 
-func (ls *LLMSkill) Execute(input interface{}) (interface{}, error) {
-	ctx := context.Background()
+func (ls *LLMSkill) GetConfig() map[string]any {
+	return map[string]any{
+		"system_prompt": ls.SystemPrompt,
+		"model":         ls.Model,
+		"temperature":   ls.Temperature,
+		"max_tokens":    ls.MaxTokens,
+	}
+}
 
-	// 解析输入
-	inputMap, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid input format")
+func (ls *LLMSkill) Execute(ctx context.Context, input interface{}) (interface{}, error) {
+	gw := ls.gateway
+	if override, ok := llmgateway.GatewayFromContext(ctx); ok {
+		gw = override
 	}
 
-	model, ok := inputMap["model"].(string)
-	if !ok {
+	inputMap, _ := input.(map[string]interface{})
+
+	// model: stored config is default, input can override
+	model := ls.Model
+	if m, ok := inputMap["model"].(string); ok && m != "" {
+		model = m
+	}
+	if model == "" {
 		return nil, fmt.Errorf("model not specified")
 	}
 
 	prompt, ok := inputMap["prompt"].(string)
-	if !ok {
+	if !ok || prompt == "" {
 		return nil, fmt.Errorf("prompt not specified")
 	}
 
-	// 构建请求
 	req := &llmgateway.CompletionRequest{
-		Model: model,
-		Messages: []llmgateway.Message{
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
+		Model:    model,
+		Messages: []llmgateway.Message{},
+	}
+	if ls.SystemPrompt != "" {
+		req.Messages = append(req.Messages, llmgateway.Message{Role: "system", Content: ls.SystemPrompt})
+	}
+	req.Messages = append(req.Messages, llmgateway.Message{Role: "user", Content: prompt})
+
+	req.Temperature = ls.Temperature
+	if t, ok := inputMap["temperature"].(float32); ok {
+		req.Temperature = t
 	}
 
-	// 设置可选参数
-	if temp, ok := inputMap["temperature"].(float32); ok {
-		req.Temperature = temp
-	}
-	if maxTokens, ok := inputMap["max_tokens"].(int); ok {
-		req.MaxTokens = maxTokens
+	req.MaxTokens = ls.MaxTokens
+	if m, ok := inputMap["max_tokens"].(int); ok && m > 0 {
+		req.MaxTokens = m
 	}
 
-	// 调用 LLM
-	resp, err := ls.gateway.Complete(ctx, req)
+	resp, err := gw.Complete(ctx, req)
 	if err != nil {
 		ls.logger.Error("LLM call failed", zap.Error(err))
 		return nil, err

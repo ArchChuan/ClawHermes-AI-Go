@@ -157,8 +157,8 @@ type MemoryEvent struct {
 // DefaultMemoryConfig returns the default memory configuration
 func DefaultMemoryConfig() *MemoryConfig {
 	return &MemoryConfig{
-		MaxShortTermMessages: 100,
-		ShortTermWindowSize:  10,
+		MaxShortTermMessages: DefaultMaxMessages,
+		ShortTermWindowSize:  DefaultWindowSize,
 		EnableSummary:        true,
 
 		EnableVectorSearch: true,
@@ -170,7 +170,7 @@ func DefaultMemoryConfig() *MemoryConfig {
 		EntityThreshold:        0.8,
 
 		EnablePersistence:   true,
-		PersistenceInterval: 5 * time.Minute,
-		MaxMemoryAge:        30 * 24 * time.Hour, // 30 days
+		PersistenceInterval: DefaultPersistInterval,
+		MaxMemoryAge:        DefaultMaxMemoryAge,
 	}
 }

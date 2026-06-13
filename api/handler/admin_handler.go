@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/api/model"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -47,8 +48,8 @@ func (h *AdminHandler) ListTenants(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+	if pageSize < 1 || pageSize > constants.MaxPageSize {
+		pageSize = constants.DefaultPageSize
 	}
 	offset := (page - 1) * pageSize
 

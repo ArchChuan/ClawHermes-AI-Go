@@ -29,6 +29,6 @@ func (p *LLMSkillProvider) SkillType() string {
 	return "llm"
 }
 
-func (p *LLMSkillProvider) Execute(_ context.Context, _ string, input any) (any, error) {
-	return p.s.Execute(input)
+func (p *LLMSkillProvider) Execute(ctx context.Context, _ string, input any) (any, error) {
+	return p.s.Execute(ctx, input)
 }

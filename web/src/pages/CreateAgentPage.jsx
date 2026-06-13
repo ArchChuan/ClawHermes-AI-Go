@@ -1,199 +1,226 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Form,
-  Input,
-  Select,
-  Button,
-  Card,
-  Space,
-  Typography,
-  notification,
-  InputNumber,
-  Tag,
-  message
+  Form, Input, Select, Button, Space, Typography, InputNumber, Tag, message, Divider,
 } from 'antd';
-import { createAgent, getAllSkills, getAvailableModels } from '../services/api';
+import {
+  ArrowLeftOutlined, RobotOutlined, ThunderboltOutlined, SettingOutlined,
+} from '@ant-design/icons';
+import { createAgent, getAllSkills, getAvailableModels, getMCPServers, listWorkspaces } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
+
+const FALLBACK_MODELS = ['glm-4', 'glm-4-flash', 'qwen-plus', 'qwen-turbo'];
+
+const AGENT_TYPES = [
+  { value: 'react',        label: 'ReAct（工具调用 + 推理）',  disabled: false },
+  { value: 'cot',          label: 'CoT（思维链推理）',          disabled: true },
+  { value: 'planning',     label: 'Planning（规划分解）',       disabled: true },
+  { value: 'tool_calling', label: 'Tool Calling（纯工具调用）', disabled: true },
+  { value: 'rag',          label: 'RAG（检索增强生成）',        disabled: true },
+  { value: 'swarm',        label: 'Swarm（多 Agent 协作）',     disabled: true },
+];
+
+const SectionHeader = ({ icon, title, subtitle }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+    <div style={{
+      width: 32, height: 32, borderRadius: 8,
+      background: '#f0f5ff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {React.cloneElement(icon, { style: { color: '#2f54eb', fontSize: 16 } })}
+    </div>
+    <div>
+      <Text strong style={{ fontSize: 14, display: 'block' }}>{title}</Text>
+      {subtitle && <Text type="secondary" style={{ fontSize: 12 }}>{subtitle}</Text>}
+    </div>
+  </div>
+);
 
 const CreateAgentPage = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [skills, setSkills] = useState([]);
+  const [mcpServers, setMcpServers] = useState([]);
+  const [workspaces, setWorkspaces] = useState([]);
   const [availableModels, setAvailableModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadModels();
-    loadSkills();
-  }, []);
-
-  const FALLBACK_MODELS = ['glm-4', 'glm-4-flash', 'qwen-plus', 'qwen-turbo'];
-
-  const loadModels = async () => {
-    try {
-      const res = await getAvailableModels();
-      const models = res.data.models?.length > 0 ? res.data.models : FALLBACK_MODELS;
-      setAvailableModels(models);
-      form.setFieldValue('llmModel', models[0]);
-    } catch {
-      message.warning('加载模型列表失败，使用默认列表');
-      setAvailableModels(FALLBACK_MODELS);
-      form.setFieldValue('llmModel', FALLBACK_MODELS[0]);
-    } finally {
-      setModelsLoading(false);
-    }
-  };
-
-  const loadSkills = async () => {
-    try {
-      const response = await getAllSkills();
-      setSkills(response.data.skills || []);
-    } catch (error) {
-      message.error(error.response?.data?.error || '加载技能列表失败');
-    }
-  };
+    let cancelled = false;
+    (async () => {
+      try {
+        const [modelsRes, skillsRes, mcpRes, workspacesRes] = await Promise.allSettled([
+          getAvailableModels(),
+          getAllSkills(),
+          getMCPServers(),
+          listWorkspaces(),
+        ]);
+        if (!cancelled) {
+          if (modelsRes.status === 'fulfilled') {
+            const models = modelsRes.value.data.models?.length > 0
+              ? modelsRes.value.data.models : FALLBACK_MODELS;
+            setAvailableModels(models);
+            form.setFieldValue('llmModel', models[0]);
+          } else {
+            setAvailableModels(FALLBACK_MODELS);
+            form.setFieldValue('llmModel', FALLBACK_MODELS[0]);
+          }
+          if (skillsRes.status === 'fulfilled') {
+            setSkills(skillsRes.value.data.skills || []);
+          }
+          if (mcpRes.status === 'fulfilled') {
+            setMcpServers(mcpRes.value.data.servers || []);
+          }
+          if (workspacesRes.status === 'fulfilled') {
+            setWorkspaces(workspacesRes.value.data.workspaces || []);
+          }
+          setModelsLoading(false);
+        }
+      } catch {
+        if (!cancelled) setModelsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      await createAgent(values);
-      notification.success({
-        message: '创建成功',
-        description: `智能代理 "${values.name}" 已成功创建`,
+      await createAgent({
+        ...values,
+        mcpServerIds: values.mcpServerIds || [],
+        knowledgeWorkspaceIds: values.knowledgeWorkspaceIds || [],
       });
-      form.resetFields();
+      message.success(`Agent "${values.name}" 创建成功`);
       navigate('/agents');
-    } catch (error) {
-      if (error.response?.status !== 403) {
-        notification.error({
-          message: '创建失败',
-          description: error.response?.data?.error || error.message || '创建智能代理时发生错误',
-        });
+    } catch (err) {
+      if (err.response?.status !== 403) {
+        message.error(err.response?.data?.error || '创建失败');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCancel = () => {
-    navigate('/agents');
-  };
-
   return (
-    <div>
-      <Title level={2}>创建智能代理</Title>
-      
-      <Card style={{ marginTop: 24 }}>
-        <Form
-          form={form}
-          name="createAgent"
-          labelCol={{ span: 6 }}
-          wrapperCol={{ span: 14 }}
-          layout="horizontal"
-          onFinish={onFinish}
-          initialValues={{
-            llmModel: '',
-            maxIterations: 5,
-            allowedSkills: []
-          }}
-        >
-          <Form.Item
-            label="代理名称"
-            name="name"
-            rules={[{ required: true, message: '请输入代理名称!' }]}
-          >
-            <Input placeholder="请输入代理名称" />
-          </Form.Item>
+    <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/agents')} type="text">返回</Button>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>创建 Agent</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>配置一个新的智能 Agent</Text>
+        </div>
+      </div>
 
-          <Form.Item
-            label="描述"
-            name="description"
-          >
-            <TextArea rows={3} placeholder="请输入代理描述" />
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
+        initialValues={{ type: 'react', maxIterations: 5, allowedSkills: [] }}
+      >
+        {/* 基本信息 */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #f0f0f0', padding: 24, marginBottom: 16 }}>
+          <SectionHeader icon={<RobotOutlined />} title="基本信息" subtitle="Agent 的名称和对外描述" />
+          <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入 Agent 名称' }]}>
+            <Input placeholder="例如：数据分析助手" />
           </Form.Item>
-
-          <Form.Item
-            label="角色设定"
-            name="persona"
-          >
-            <TextArea 
-              rows={4} 
-              placeholder="描述此代理的角色和行为特征，例如：'你是一个专业的数据分析助手，专注于从数据中提取有价值的商业洞察'" 
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="系统提示词"
-            name="systemPrompt"
-          >
-            <TextArea 
-              rows={6} 
-              placeholder="定义代理的行为准则和工作方式，例如：'你是一个AI助手，帮助用户完成任务。你可以使用以下技能：数据处理、文本分析、计算等。'" 
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="LLM模型"
-            name="llmModel"
-            rules={[{ required: true, message: '请选择LLM模型!' }]}
-          >
-            <Select placeholder="请选择LLM模型" loading={modelsLoading}>
-              {availableModels.map(model => (
-                <Option key={model} value={model}>{model}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-
-          <Form.Item
-            label="最大迭代次数"
-            name="maxIterations"
-            rules={[{ required: true, message: '请输入最大迭代次数!' }]}
-          >
-            <InputNumber 
-              min={1} 
-              max={20} 
-              placeholder="代理执行任务的最大迭代次数"
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="允许使用的技能"
-            name="allowedSkills"
-          >
-            <Select 
-              mode="multiple" 
-              placeholder="选择此代理可以使用的技能"
-              loading={skills.length === 0}
-            >
-              {skills.map(skill => (
-                <Option key={skill.id} value={skill.id}>
-                  <Tag color={skill.type === 'code' ? 'green' : skill.type === 'llm' ? 'orange' : 'default'}>
-                    {skill.type}
-                  </Tag>
-                  {skill.name}
+          <Form.Item label="类型" name="type" rules={[{ required: true, message: '请选择 Agent 类型' }]}>
+            <Select>
+              {AGENT_TYPES.map(t => (
+                <Option key={t.value} value={t.value} disabled={t.disabled}>
+                  {t.label}{t.disabled ? ' （暂未开放）' : ''}
                 </Option>
               ))}
             </Select>
           </Form.Item>
-
-          <Form.Item wrapperCol={{ offset: 6, span: 14 }}>
-            <Space size="middle">
-              <Button type="primary" htmlType="submit" loading={loading}>
-                创建代理
-              </Button>
-              <Button onClick={handleCancel}>
-                取消
-              </Button>
-            </Space>
+          <Form.Item label="描述" name="description" style={{ marginBottom: 0 }}>
+            <TextArea rows={2} placeholder="简述 Agent 的用途" />
           </Form.Item>
-        </Form>
-      </Card>
+        </div>
+
+        {/* 角色与提示词 */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #f0f0f0', padding: 24, marginBottom: 16 }}>
+          <SectionHeader icon={<ThunderboltOutlined />} title="角色与提示词" subtitle="定义 Agent 的行为特征" />
+          <Form.Item label="角色设定" name="persona">
+            <TextArea
+              rows={3}
+              placeholder="例如：你是一个专业的数据分析师，擅长从海量数据中提取关键洞察..."
+            />
+          </Form.Item>
+          <Form.Item label="系统提示词" name="systemPrompt" style={{ marginBottom: 0 }}>
+            <TextArea
+              rows={5}
+              placeholder="定义 Agent 的行为准则、可用工具和响应格式..."
+            />
+          </Form.Item>
+        </div>
+
+        {/* 模型与参数 */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #f0f0f0', padding: 24, marginBottom: 16 }}>
+          <SectionHeader icon={<SettingOutlined />} title="模型与参数" subtitle="选择推理模型和执行配置" />
+          <Form.Item label="LLM 模型" name="llmModel" rules={[{ required: true, message: '请选择模型' }]}>
+            <Select placeholder="选择推理模型" loading={modelsLoading}>
+              {availableModels.map(m => <Option key={m} value={m}>{m}</Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item label="最大迭代次数" name="maxIterations" rules={[{ required: true }]}>
+            <InputNumber min={1} max={20} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            label="允许使用的技能"
+            name="allowedSkills"
+            style={{ marginBottom: 16 }}
+            extra="工具型技能（代码执行、API 调用等）扩展 Agent 的行动能力"
+          >
+            <Select mode="multiple" placeholder="选择 Agent 可调用的工具技能">
+              {skills.map(s => (
+                <Option key={s.id} value={s.id}>
+                  <Tag
+                    style={{ margin: '0 6px 0 0', border: 'none', fontSize: 11 }}
+                    color={s.type === 'code' ? 'green' : s.type === 'llm' ? 'orange' : 'default'}
+                  >
+                    {s.type}
+                  </Tag>
+                  {s.name}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="挂载 MCP 服务"
+            name="mcpServerIds"
+            style={{ marginBottom: 16 }}
+            extra="提供符合 Model Context Protocol 协议的结构化工具"
+          >
+            <Select mode="multiple" placeholder="选择要挂载的 MCP 服务器">
+              {mcpServers.map(s => (
+                <Option key={s.id} value={s.id}>{s.name || s.id}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="挂载知识库"
+            name="knowledgeWorkspaceIds"
+            style={{ marginBottom: 0 }}
+            extra="Agent 执行时可自动检索已挂载知识库中的文档（RAG 增强）"
+          >
+            <Select mode="multiple" placeholder="选择知识库工作区">
+              {workspaces.map(w => (
+                <Option key={w.id} value={w.id}>{w.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button onClick={() => navigate('/agents')}>取消</Button>
+          <Button type="primary" htmlType="submit" loading={loading}>创建 Agent</Button>
+        </div>
+      </Form>
     </div>
   );
 };

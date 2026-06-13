@@ -1,14 +1,16 @@
 package llmgateway
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
+	"strings"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +27,7 @@ func NewQwenClient(apiKey string, logger *zap.Logger) *QwenClient {
 	return &QwenClient{
 		apiKey: apiKey,
 		base:   qwenBaseURL,
-		http:   &http.Client{Timeout: 60 * time.Second},
+		http:   &http.Client{Timeout: constants.LLMRequestTimeout},
 		logger: logger,
 	}
 }
@@ -34,7 +36,7 @@ func NewQwenClientWithBase(apiKey, baseURL string, logger *zap.Logger) *QwenClie
 	return &QwenClient{
 		apiKey: apiKey,
 		base:   baseURL,
-		http:   &http.Client{Timeout: 60 * time.Second},
+		http:   &http.Client{Timeout: constants.LLMRequestTimeout},
 		logger: logger,
 	}
 }
@@ -63,6 +65,10 @@ func (c *QwenClient) Complete(ctx context.Context, req *CompletionRequest) (*Com
 		return nil, fmt.Errorf("qwen: read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("qwen: http error",
+			zap.String("model", req.Model),
+			zap.Int("status", resp.StatusCode),
+		)
 		return nil, fmt.Errorf("qwen: status %d: %s", resp.StatusCode, string(raw))
 	}
 
@@ -104,6 +110,88 @@ func (c *QwenClient) Complete(ctx context.Context, req *CompletionRequest) (*Com
 	}, nil
 }
 
+// CompleteStream calls the Qwen streaming API (OpenAI-compatible SSE format).
+func (c *QwenClient) CompleteStream(ctx context.Context, req *CompletionRequest, onToken func(string)) (*CompletionResponse, error) {
+	streamReq := *req
+	streamReq.Stream = true
+	body, err := json.Marshal(streamReq)
+	if err != nil {
+		return nil, fmt.Errorf("qwen: marshal stream request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("qwen: build stream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	streamClient := &http.Client{}
+	resp, err := streamClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("qwen: do stream request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("qwen: stream status %d: %s", resp.StatusCode, string(raw))
+	}
+
+	var result CompletionResponse
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string     `json:"content"`
+					ToolCalls []ToolCall `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Model string `json:"model"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
+		}
+		if chunk.Model != "" {
+			result.Model = chunk.Model
+		}
+		if chunk.Usage != nil {
+			result.Usage.PromptTokens = chunk.Usage.PromptTokens
+			result.Usage.CompletionTokens = chunk.Usage.CompletionTokens
+			result.Usage.TotalTokens = chunk.Usage.TotalTokens
+		}
+		if len(chunk.Choices) > 0 {
+			if t := chunk.Choices[0].Delta.Content; t != "" {
+				result.Content += t
+				onToken(t)
+			}
+			if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+				result.ToolCalls = chunk.Choices[0].Delta.ToolCalls
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("qwen: read stream: %w", err)
+	}
+	return &result, nil
+}
+
 func (c *QwenClient) CreateEmbeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
 	body, err := json.Marshal(map[string]any{
 		"model": req.Model,
@@ -131,6 +219,10 @@ func (c *QwenClient) CreateEmbeddings(ctx context.Context, req *EmbeddingRequest
 		return nil, fmt.Errorf("qwen: read embed body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("qwen: embed http error",
+			zap.String("model", req.Model),
+			zap.Int("status", resp.StatusCode),
+		)
 		return nil, fmt.Errorf("qwen: embed status %d: %s", resp.StatusCode, string(raw))
 	}
 

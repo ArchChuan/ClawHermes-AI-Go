@@ -2,6 +2,7 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -11,6 +12,7 @@ type ExecutionContext struct {
 	Input     interface{}
 	StartTime time.Time
 	Timeout   time.Duration
+	Ctx       context.Context
 }
 
 type ExecutionResult struct {
@@ -60,7 +62,11 @@ func (e *Executor) Execute(ctx ExecutionContext) *ExecutionResult {
 	errChan := make(chan error, 1)
 
 	go func() {
-		output, err := executor.Execute(ctx.Input)
+		execCtx := ctx.Ctx
+		if execCtx == nil {
+			execCtx = context.Background()
+		}
+		output, err := executor.Execute(execCtx, ctx.Input)
 		if err != nil {
 			errChan <- err
 		} else {

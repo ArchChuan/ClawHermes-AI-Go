@@ -14,13 +14,14 @@ const (
 )
 
 type CapabilityRequest struct {
-	TraceID    string
-	TenantID   string
-	Type       CapabilityType
-	LLM        *LLMCapRequest
-	Skill      *SkillCapRequest
-	Timeout    time.Duration
-	LLMAPIKeys map[string]string // per-tenant decrypted keys; non-nil overrides global gateway
+	TraceID     string
+	TenantID    string
+	Type        CapabilityType
+	LLM         *LLMCapRequest
+	Skill       *SkillCapRequest
+	Timeout     time.Duration
+	LLMAPIKeys  map[string]string // per-tenant decrypted keys; non-nil overrides global gateway
+	TokenStream func(string)      // if non-nil, stream tokens to this callback (LLM only)
 }
 
 func (r CapabilityRequest) Validate() error {

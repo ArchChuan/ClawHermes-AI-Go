@@ -5,16 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ExecutionRecord is a single agent execution history entry.
+// ExecutionRecord is an agent execution history entry.
 type ExecutionRecord struct {
 	ID            string
-	TenantID      string
 	AgentID       string
-	UserID        string
 	AgentName     string
+	UserID        string
 	Status        string
 	InputPreview  string
 	OutputPreview string
@@ -24,58 +25,107 @@ type ExecutionRecord struct {
 	CreatedAt     time.Time
 }
 
-// ExecutionStore persists and retrieves agent execution history.
+// ExecutionStore persists and retrieves agent execution history from the tenant schema.
 type ExecutionStore struct {
-	db *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
-// NewExecutionStore creates an ExecutionStore.
-func NewExecutionStore(db *pgxpool.Pool) *ExecutionStore {
-	return &ExecutionStore{db: db}
+// NewExecutionStore creates an ExecutionStore backed by pool.
+func NewExecutionStore(pool *pgxpool.Pool) *ExecutionStore {
+	return &ExecutionStore{pool: pool}
 }
 
-// Insert writes one execution record. Never blocks the caller on error.
+func (s *ExecutionStore) execTenant(ctx context.Context, fn func(context.Context, pgx.Tx) error) error {
+	tc, ok := tenantdb.FromContext(ctx)
+	if !ok || tc.TenantID == "" {
+		return fmt.Errorf("execution_store: missing tenant context")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("execution_store: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	schema := "tenant_" + tc.TenantID
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`SET LOCAL search_path = "%s", public`, schema)); err != nil {
+		return fmt.Errorf("execution_store: set search_path: %w", err)
+	}
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Insert writes an execution record into the tenant schema. Safe to call in a goroutine.
 func (s *ExecutionStore) Insert(ctx context.Context, r ExecutionRecord) error {
-	_, err := s.db.Exec(ctx,
-		`INSERT INTO public.agent_executions
-		 (tenant_id, agent_id, user_id, agent_name, status,
-		  input_preview, output_preview, error_message, total_tokens, duration_ms)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		r.TenantID, r.AgentID, r.UserID, r.AgentName, r.Status,
-		r.InputPreview, r.OutputPreview, r.ErrorMessage, r.TotalTokens, r.DurationMs,
-	)
-	if err != nil {
-		return fmt.Errorf("execution_store: insert: %w", err)
-	}
-	return nil
+	return s.execTenant(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO agent_executions
+			 (agent_id, agent_name, user_id, status,
+			  input_preview, output_preview, error_message, total_tokens, duration_ms)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			r.AgentID, r.AgentName, r.UserID, r.Status,
+			r.InputPreview, r.OutputPreview, r.ErrorMessage, r.TotalTokens, r.DurationMs,
+		)
+		if err != nil {
+			return fmt.Errorf("insert: %w", err)
+		}
+		return nil
+	})
 }
 
-// List returns executions for a tenant in the last 30 days, newest first.
-func (s *ExecutionStore) List(ctx context.Context, tenantID string) ([]ExecutionRecord, error) {
-	rows, err := s.db.Query(ctx,
-		`SELECT id, tenant_id, agent_id, user_id, agent_name, status,
-		        input_preview, output_preview, error_message, total_tokens, duration_ms, created_at
-		 FROM public.agent_executions
-		 WHERE tenant_id = $1 AND created_at >= now() - INTERVAL '30 days'
-		 ORDER BY created_at DESC
-		 LIMIT 500`,
-		tenantID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("execution_store: list: %w", err)
+// ListOptions controls pagination for List.
+type ListOptions struct {
+	Page     int
+	PageSize int
+}
+
+// List returns execution records for the current tenant (last 30 days), newest first.
+func (s *ExecutionStore) List(ctx context.Context, opts ListOptions) ([]ExecutionRecord, int64, error) {
+	if opts.Page < 1 {
+		opts.Page = 1
 	}
-	defer rows.Close()
+	if opts.PageSize < 1 {
+		opts.PageSize = 20
+	}
+	offset := (opts.Page - 1) * opts.PageSize
 
 	var out []ExecutionRecord
-	for rows.Next() {
-		var r ExecutionRecord
-		if err := rows.Scan(
-			&r.ID, &r.TenantID, &r.AgentID, &r.UserID, &r.AgentName, &r.Status,
-			&r.InputPreview, &r.OutputPreview, &r.ErrorMessage, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("execution_store: scan: %w", err)
+	var total int64
+
+	err := s.execTenant(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM agent_executions
+			 WHERE created_at >= now() - INTERVAL '30 days'`,
+		).Scan(&total); err != nil {
+			return fmt.Errorf("count: %w", err)
 		}
-		out = append(out, r)
-	}
-	return out, nil
+
+		rows, err := tx.Query(ctx,
+			`SELECT id, agent_id, agent_name, user_id, status,
+			        input_preview, output_preview, error_message, total_tokens, duration_ms, created_at
+			 FROM agent_executions
+			 WHERE created_at >= now() - INTERVAL '30 days'
+			 ORDER BY created_at DESC
+			 LIMIT $1 OFFSET $2`,
+			opts.PageSize, offset,
+		)
+		if err != nil {
+			return fmt.Errorf("query: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var r ExecutionRecord
+			if err := rows.Scan(
+				&r.ID, &r.AgentID, &r.AgentName, &r.UserID, &r.Status,
+				&r.InputPreview, &r.OutputPreview, &r.ErrorMessage, &r.TotalTokens, &r.DurationMs, &r.CreatedAt,
+			); err != nil {
+				return fmt.Errorf("scan: %w", err)
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	})
+	return out, total, err
 }

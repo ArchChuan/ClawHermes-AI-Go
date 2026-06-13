@@ -1,388 +1,314 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  Table,
-  Button,
-  Input,
-  Modal,
-  Space,
-  Tag,
-  Select,
-  message,
-  Popconfirm,
-  Row,
-  Col,
-  Tabs,
-  Empty,
-  Descriptions,
-  Tooltip
+  Card, Table, Button, Input, Modal, Space, Tag, Select, message,
+  Popconfirm, Tabs, Empty, Descriptions, Tooltip, Typography,
 } from 'antd';
 import {
-  DeleteOutlined,
-  SearchOutlined,
-  PlusOutlined,
-  EyeOutlined,
-  DatabaseOutlined,
-  SettingOutlined,
-  UserOutlined,
-  FileTextOutlined
+  DeleteOutlined, SearchOutlined, PlusOutlined, UserOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import {
-  searchMemory,
-  getMemoryStats,
-  clearSession,
-  getMemoryEntities,
-  getMemorySummary,
-  deleteMemory
+  addMemory, searchMemory, getMemoryStats, clearSession,
+  getMemoryEntities, getMemorySummary, deleteMemory,
 } from '../services/api';
+import { COMPACT_PAGE_SIZE, MEMORY_SEARCH_LIMIT } from '../constants';
 
-const { Search } = Input;
-const { TextArea } = Input;
+const { Search, TextArea } = Input;
+const { Title, Text } = Typography;
+
+const importanceColor = (v) => v > 0.7 ? '#f5222d' : v > 0.5 ? '#fa8c16' : '#52c41a';
+
+const memoryColumns = (onDelete) => [
+  {
+    title: '类型',
+    dataIndex: 'type',
+    key: 'type',
+    width: 80,
+    render: (type) => (
+      <Tag color={type === 'user' ? 'blue' : type === 'assistant' ? 'green' : 'default'}>
+        {type === 'user' ? '用户' : type === 'assistant' ? '助手' : '系统'}
+      </Tag>
+    ),
+  },
+  {
+    title: '内容',
+    dataIndex: 'content',
+    key: 'content',
+    ellipsis: true,
+    render: (content) => (
+      <Tooltip title={content} placement="topLeft">
+        <Text ellipsis>{content}</Text>
+      </Tooltip>
+    ),
+  },
+  {
+    title: '标签',
+    dataIndex: 'tags',
+    key: 'tags',
+    width: 160,
+    render: (tags) => tags?.map(tag => <Tag key={tag} style={{ marginBottom: 2 }}>{tag}</Tag>),
+  },
+  {
+    title: '重要性',
+    dataIndex: 'importance',
+    key: 'importance',
+    width: 80,
+    align: 'right',
+    sorter: (a, b) => (a.importance || 0) - (b.importance || 0),
+    render: (v) => <Text style={{ color: importanceColor(v), fontWeight: 600 }}>{v?.toFixed(2) ?? '-'}</Text>,
+  },
+  {
+    title: '时间',
+    dataIndex: 'timestamp',
+    key: 'timestamp',
+    width: 150,
+    render: (ts) => <Text type="secondary">{new Date(ts).toLocaleString('zh-CN')}</Text>,
+  },
+  {
+    title: '操作',
+    key: 'action',
+    width: 80,
+    render: (_, record) => (
+      <Popconfirm title="确定删除这条记忆？" onConfirm={() => onDelete(record.id)} okText="删除" cancelText="取消">
+        <Button danger size="small" icon={<DeleteOutlined />} type="text" />
+      </Popconfirm>
+    ),
+  },
+];
+
+const entityColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name', render: (v) => <Text strong>{v}</Text> },
+  { title: '类型', dataIndex: 'type', key: 'type', width: 100, render: (v) => <Tag>{v}</Tag> },
+  {
+    title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 90, align: 'right',
+    render: (v) => <Text>{(v * 100).toFixed(1)}%</Text>,
+  },
+  {
+    title: '首次出现', dataIndex: 'first_seen', key: 'first_seen', width: 150,
+    render: (d) => <Text type="secondary">{new Date(d).toLocaleString('zh-CN')}</Text>,
+  },
+  {
+    title: '最近出现', dataIndex: 'last_seen', key: 'last_seen', width: 150,
+    render: (d) => <Text type="secondary">{new Date(d).toLocaleString('zh-CN')}</Text>,
+  },
+];
 
 const MemoryPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
-  const [sessions, setSessions] = useState([]);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [activeTab, setActiveTab] = useState('memory');
-  const [createModalVisible, setCreateModalVisible] = useState(false);
   const [entities, setEntities] = useState([]);
   const [summary, setSummary] = useState('');
-  const [newMemory, setNewMemory] = useState({
-    role: 'user',
-    content: '',
-    tags: [],
-    importance: 0.5
-  });
+  const [sessionIdInput, setSessionIdInput] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newMemory, setNewMemory] = useState({ role: 'user', content: '', tags: [], importance: 0.5 });
 
-  // 加载记忆统计
   const loadStats = async () => {
     try {
-      const response = await getMemoryStats();
-      if (response.data) {
-        setStats(response.data);
-      }
-    } catch (error) {
+      const res = await getMemoryStats();
+      if (res.data) setStats(res.data);
+    } catch {
       message.error('加载记忆统计失败');
     }
   };
 
-  // 搜索记忆
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      return;
-    }
+  const handleSearch = async (query) => {
+    const q = (query ?? searchQuery).trim();
+    if (!q) return;
     setLoading(true);
     try {
-      const response = await searchMemory({
-        query: searchQuery,
-        limit: 20
-      });
-      if (response.data && response.data.results) {
-        setSearchResults(response.data.results);
-      }
-    } catch (error) {
+      const res = await searchMemory({ query: q, limit: MEMORY_SEARCH_LIMIT });
+      setSearchResults(res.data?.results || []);
+    } catch {
       message.error('搜索记忆失败');
     } finally {
       setLoading(false);
     }
   };
 
-  // 添加记忆
   const handleAddMemory = async () => {
-    if (!newMemory.content.trim()) {
-      message.warning('请输入记忆内容');
-      return;
-    }
+    if (!newMemory.content.trim()) { message.warning('请输入记忆内容'); return; }
     try {
-      const response = await addMemory({
-        ...newMemory,
-        session_id: selectedSession?.session_id || 'default',
-        tenant_id: 'default',
-        user_id: 'default'
-      });
-      if (response.data) {
-        message.success('记忆添加成功');
-        setCreateModalVisible(false);
-        setNewMemory({ role: 'user', content: '', tags: [], importance: 0.5 });
-        handleSearch();
-      }
-    } catch (error) {
+      await addMemory({ ...newMemory, session_id: 'default', user_id: 'default' });
+      message.success('记忆添加成功');
+      setCreateOpen(false);
+      setNewMemory({ role: 'user', content: '', tags: [], importance: 0.5 });
+      loadStats();
+      if (searchQuery.trim()) handleSearch(searchQuery);
+    } catch {
       message.error('添加记忆失败');
     }
   };
 
-  // 删除记忆
   const handleDeleteMemory = async (id) => {
     try {
       await deleteMemory(id);
-      message.success('记忆删除成功');
-      handleSearch();
+      message.success('删除成功');
+      setSearchResults(prev => prev.filter(r => r.entry?.id !== id));
       loadStats();
-    } catch (error) {
+    } catch {
       message.error('删除记忆失败');
     }
   };
 
-  // 清除会话
-  const handleClearSession = async (sessionId) => {
-    try {
-      await clearSession(sessionId, { tenant_id: 'default', user_id: 'default' });
-      message.success('会话清除成功');
-      loadStats();
-    } catch (error) {
-      message.error('清除会话失败');
-    }
-  };
-
-  // 加载实体
   const loadEntities = async () => {
     try {
-      const response = await getMemoryEntities({ tenant_id: 'default', user_id: 'default' });
-      if (response.data && response.data.entities) {
-        setEntities(response.data.entities);
-      }
-    } catch (error) {
+      const res = await getMemoryEntities({ tenant_id: 'default', user_id: 'default' });
+      setEntities(res.data?.entities || []);
+    } catch {
       message.error('加载实体失败');
     }
   };
 
-  // 加载摘要
-  const loadSummary = async (sessionId) => {
+  const loadSummary = async () => {
+    if (!sessionIdInput.trim()) { message.warning('请输入会话 ID'); return; }
     try {
-      const response = await getMemorySummary(sessionId, { tenant_id: 'default', user_id: 'default' });
-      if (response.data) {
-        setSummary(response.data.summary);
-      }
-    } catch (error) {
+      const res = await getMemorySummary(sessionIdInput, { tenant_id: 'default', user_id: 'default' });
+      setSummary(res.data?.summary || '');
+    } catch {
       message.error('加载摘要失败');
     }
   };
 
   useEffect(() => {
     loadStats();
-    handleSearch();
   }, []);
 
-  const memoryColumns = [
+  const tabItems = [
     {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => (
-        <Tag color={type === 'user' ? 'blue' : type === 'assistant' ? 'green' : 'default'}>
-          {type === 'user' ? '用户' : type === 'assistant' ? '助手' : '系统'}
-        </Tag>
-      )
+      key: 'search',
+      label: '记忆搜索',
+      children: (
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          <Search
+            placeholder="输入关键词搜索记忆..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onSearch={handleSearch}
+            enterButton={<><SearchOutlined /> 搜索</>}
+            allowClear
+            loading={loading}
+          />
+          {searchResults.length > 0 ? (
+            <Table
+              columns={memoryColumns(handleDeleteMemory)}
+              dataSource={searchResults.map(r => ({ ...r.entry, key: r.entry?.id }))}
+              rowKey="id"
+              loading={loading}
+              pagination={{ pageSize: COMPACT_PAGE_SIZE, showTotal: (t) => `共 ${t} 条` }}
+              size="small"
+            />
+          ) : (
+            <Empty description={searchQuery ? '没有找到相关记忆' : '输入关键词搜索记忆'} style={{ padding: '40px 0' }} />
+          )}
+        </Space>
+      ),
     },
     {
-      title: '内容',
-      dataIndex: 'content',
-      key: 'content',
-      ellipsis: true,
-      render: (content) => (
-        <Tooltip title={content}>
-          <span>{content}</span>
-        </Tooltip>
-      )
+      key: 'stats',
+      label: '统计',
+      children: stats ? (
+        <Descriptions bordered column={2} size="small">
+          <Descriptions.Item label="总记忆数">{stats.total_entries}</Descriptions.Item>
+          <Descriptions.Item label="短期记忆">{stats.short_term_count}</Descriptions.Item>
+          <Descriptions.Item label="长期记忆">{stats.long_term_count}</Descriptions.Item>
+          <Descriptions.Item label="实体数">{stats.entity_count}</Descriptions.Item>
+          <Descriptions.Item label="会话数">{stats.sessions_count}</Descriptions.Item>
+          <Descriptions.Item label="活跃用户">{stats.active_users}</Descriptions.Item>
+          <Descriptions.Item label="向量数">{stats.vector_count}</Descriptions.Item>
+          <Descriptions.Item label="最后访问">{stats.last_access_time ? new Date(stats.last_access_time).toLocaleString('zh-CN') : '-'}</Descriptions.Item>
+        </Descriptions>
+      ) : (
+        <Empty description="暂无统计数据" />
+      ),
     },
     {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      render: (tags) => tags?.map(tag => <Tag key={tag}>{tag}</Tag>)
+      key: 'entities',
+      label: '实体',
+      children: (
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Button icon={<ReloadOutlined />} onClick={loadEntities}>加载实体</Button>
+          <Table
+            columns={entityColumns}
+            dataSource={entities}
+            rowKey="id"
+            pagination={{ pageSize: COMPACT_PAGE_SIZE }}
+            size="small"
+            locale={{ emptyText: '点击"加载实体"查看' }}
+          />
+        </Space>
+      ),
     },
     {
-      title: '重要性',
-      dataIndex: 'importance',
-      key: 'importance',
-      render: (importance) => (
-        <span style={{ color: importance > 0.7 ? 'red' : importance > 0.5 ? 'orange' : 'green' }}>
-          {importance.toFixed(2)}
-        </span>
-      )
+      key: 'summary',
+      label: '会话摘要',
+      children: (
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Space>
+            <Input
+              placeholder="输入会话 ID"
+              value={sessionIdInput}
+              onChange={(e) => setSessionIdInput(e.target.value)}
+              onPressEnter={loadSummary}
+              style={{ width: 240 }}
+            />
+            <Button type="primary" onClick={loadSummary}>查看摘要</Button>
+          </Space>
+          {summary ? (
+            <Card style={{ background: '#fafafa', borderRadius: 8 }}>
+              <Text style={{ lineHeight: 1.8 }}>{summary}</Text>
+            </Card>
+          ) : (
+            <Empty description="输入会话 ID 查看摘要" style={{ padding: '40px 0' }} />
+          )}
+        </Space>
+      ),
     },
-    {
-      title: '时间',
-      dataIndex: 'timestamp',
-      key: 'timestamp',
-      render: (timestamp) => new Date(timestamp).toLocaleString('zh-CN')
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Popconfirm
-          title="确定要删除这条记忆吗？"
-          onConfirm={() => handleDeleteMemory(record.id)}
-          okText="确定"
-          cancelText="取消"
-        >
-          <Button danger size="small" icon={<DeleteOutlined />}>
-            删除
-          </Button>
-        </Popconfirm>
-      )
-    }
-  ];
-
-  const entityColumns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name'
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => <Tag>{type}</Tag>
-    },
-    {
-      title: '置信度',
-      dataIndex: 'confidence',
-      key: 'confidence',
-      render: (confidence) => `${(confidence * 100).toFixed(1)}%`
-    },
-    {
-      title: '首次出现',
-      dataIndex: 'first_seen',
-      key: 'first_seen',
-      render: (date) => new Date(date).toLocaleString('zh-CN')
-    },
-    {
-      title: '最近出现',
-      dataIndex: 'last_seen',
-      key: 'last_seen',
-      render: (date) => new Date(date).toLocaleString('zh-CN')
-    }
   ];
 
   return (
-    <div style={{ padding: '24px', background: '#f0f2f5', minHeight: '100vh' }}>
-      <Row gutter={16}>
-        <Col span={24}>
-          <Card
-            title={
-              <Space>
-                <DatabaseOutlined />
-                <span>记忆管理</span>
-              </Space>
-            }
-            extra={
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalVisible(true)}>
-                添加记忆
-              </Button>
-            }
-          >
-            <Tabs activeKey={activeTab} onChange={setActiveTab}>
-              <Tabs.TabPane tab="记忆搜索" key="search">
-                <Space direction="vertical" style={{ width: '100%' }} size="large">
-                  <Search
-                    placeholder="搜索记忆..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onPressEnter={handleSearch}
-                    onSearch={handleSearch}
-                    style={{ width: '100%' }}
-                    loading={loading}
-                    enterButton
-                    allowClear
-                  />
-                  <Button type="primary" onClick={handleSearch} icon={<SearchOutlined />}>
-                    搜索
-                  </Button>
-                </Space>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>记忆管理</Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>搜索、查看和管理 Agent 记忆</Text>
+        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          添加记忆
+        </Button>
+      </div>
 
-                {searchResults.length > 0 ? (
-                  <Table
-                    columns={memoryColumns}
-                    dataSource={searchResults.map(r => ({ ...r.entry, id: r.entry.id, key: r.entry.id }))}
-                    rowKey="id"
-                    loading={loading}
-                    pagination={{ pageSize: 10 }}
-                  />
-                ) : (
-                  <Empty description={searchQuery ? '没有找到相关记忆' : '输入关键词搜索记忆'} />
-                )}
-              </Tabs.TabPane>
-
-              <Tabs.TabPane tab="记忆统计" key="stats">
-                {stats && (
-                  <Descriptions bordered column={2}>
-                    <Descriptions.Item label="总记忆数">{stats.total_entries}</Descriptions.Item>
-                    <Descriptions.Item label="短期记忆">{stats.short_term_count}</Descriptions.Item>
-                    <Descriptions.Item label="长期记忆">{stats.long_term_count}</Descriptions.Item>
-                    <Descriptions.Item label="实体数">{stats.entity_count}</Descriptions.Item>
-                    <Descriptions.Item label="会话数">{stats.sessions_count}</Descriptions.Item>
-                    <Descriptions.Item label="活跃用户">{stats.active_users}</Descriptions.Item>
-                    <Descriptions.Item label="向量数">{stats.vector_count}</Descriptions.Item>
-                    <Descriptions.Item label="最后访问">
-                      {new Date(stats.last_access_time).toLocaleString('zh-CN')}
-                    </Descriptions.Item>
-                  </Descriptions>
-                )}
-              </Tabs.TabPane>
-
-              <Tabs.TabPane tab="实体管理" key="entities">
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <Button icon={<UserOutlined />} onClick={loadEntities}>
-                    刷新实体
-                  </Button>
-                  <Table
-                    columns={entityColumns}
-                    dataSource={entities}
-                    rowKey="id"
-                    pagination={{ pageSize: 10 }}
-                  />
-                </Space>
-              </Tabs.TabPane>
-
-              <Tabs.TabPane tab="会话摘要" key="summary">
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <Input
-                    placeholder="输入会话 ID"
-                    onChange={(e) => setSelectedSession({ session_id: e.target.value })}
-                    onPressEnter={(e) => loadSummary(e.target.value)}
-                  />
-                  <Card title="会话摘要">
-                    {summary ? (
-                      <p style={{ lineHeight: 1.6 }}>{summary}</p>
-                    ) : (
-                      <Empty description="选择会话查看摘要" />
-                    )}
-                  </Card>
-                </Space>
-              </Tabs.TabPane>
-            </Tabs>
-          </Card>
-        </Col>
-      </Row>
+      <Card style={{ borderRadius: 12, border: '1px solid #f0f0f0' }}>
+        <Tabs items={tabItems} />
+      </Card>
 
       <Modal
         title="添加记忆"
-        open={createModalVisible}
+        open={createOpen}
         onOk={handleAddMemory}
-        onCancel={() => setCreateModalVisible(false)}
-        width={600}
+        onCancel={() => { setCreateOpen(false); setNewMemory({ role: 'user', content: '', tags: [], importance: 0.5 }); }}
+        okText="添加"
+        cancelText="取消"
+        width={520}
+        destroyOnClose
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
           <div>
-            <label>角色：</label>
+            <div style={{ marginBottom: 6, fontWeight: 500 }}>角色</div>
             <Select
               value={newMemory.role}
-              onChange={(value) => setNewMemory({ ...newMemory, role: value })}
+              onChange={(v) => setNewMemory({ ...newMemory, role: v })}
               style={{ width: '100%' }}
-            >
-              <Select.Option value="user">用户</Select.Option>
-              <Select.Option value="assistant">助手</Select.Option>
-              <Select.Option value="system">系统</Select.Option>
-            </Select>
+              options={[
+                { value: 'user', label: '用户' },
+                { value: 'assistant', label: '助手' },
+                { value: 'system', label: '系统' },
+              ]}
+            />
           </div>
           <div>
-            <label>内容：</label>
+            <div style={{ marginBottom: 6, fontWeight: 500 }}>内容</div>
             <TextArea
               rows={4}
               value={newMemory.content}
@@ -391,12 +317,9 @@ const MemoryPage = () => {
             />
           </div>
           <div>
-            <label>重要性 ({newMemory.importance.toFixed(2)})</label>
+            <div style={{ marginBottom: 6, fontWeight: 500 }}>重要性：<Text type="secondary">{newMemory.importance.toFixed(2)}</Text></div>
             <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
+              type="range" min="0" max="1" step="0.1"
               value={newMemory.importance}
               onChange={(e) => setNewMemory({ ...newMemory, importance: parseFloat(e.target.value) })}
               style={{ width: '100%' }}

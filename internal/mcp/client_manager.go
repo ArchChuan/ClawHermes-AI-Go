@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/tenantdb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,7 +33,7 @@ func NewClientManager(logger *zap.Logger, poolConfig *ConnectionPoolConfig, pool
 	if poolConfig == nil {
 		poolConfig = &ConnectionPoolConfig{
 			MaxConnections: 10,
-			IdleTimeout:    5 * time.Minute,
+			IdleTimeout:    constants.MCPIdleTimeout,
 			MaxRetries:     3,
 			RetryBackoff:   1 * time.Second,
 		}

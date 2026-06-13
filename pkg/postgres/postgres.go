@@ -8,6 +8,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	defaultMaxConns = 20
+	defaultMinConns = 2
+)
+
 type Pool struct {
 	pool   *pgxpool.Pool
 	logger *zap.Logger
@@ -18,8 +23,8 @@ func New(ctx context.Context, url string, logger *zap.Logger) (*Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: parse config: %w", err)
 	}
-	cfg.MaxConns = 20
-	cfg.MinConns = 2
+	cfg.MaxConns = defaultMaxConns
+	cfg.MinConns = defaultMinConns
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

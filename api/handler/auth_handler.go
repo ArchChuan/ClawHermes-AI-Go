@@ -9,19 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/byteBuilderX/ClawHermes-AI-Go/internal/auth"
+	"github.com/byteBuilderX/ClawHermes-AI-Go/pkg/constants"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-const (
-	refreshTokenCookie = "refresh_token"
-	accessTokenTTL     = 72 * time.Hour
-	refreshTokenTTL    = 7 * 24 * time.Hour
-	onboardingTTL      = 5 * time.Minute
-)
+const refreshTokenCookie = "refresh_token"
 
 // AuthHandlerDeps groups all dependencies for AuthHandler.
 type AuthHandlerDeps struct {
@@ -182,7 +177,7 @@ func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 		GitHubLogin: ghUser.Login,
 		AvatarURL:   ghUser.AvatarURL,
 	}
-	obToken, err := h.deps.JWTService.SignOnboarding(ob, onboardingTTL)
+	obToken, err := h.deps.JWTService.SignOnboarding(ob, constants.OnboardingTTL)
 	if err != nil {
 		h.deps.Logger.Error("sign onboarding token", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
@@ -321,7 +316,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
 		return
 	}
-	if err := h.deps.TokenStore.Rotate(ctx, rawRT, newRawRT, refreshTokenTTL); err != nil {
+	if err := h.deps.TokenStore.Rotate(ctx, rawRT, newRawRT, constants.RefreshTokenTTL); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 		return
 	}
@@ -347,7 +342,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		GlobalRole: globalRole,
 		AvatarURL:  storedClaims.AvatarURL, GitHubLogin: storedClaims.GitHubLogin,
 	}
-	accessJWT, err := h.deps.JWTService.Sign(claims, accessTokenTTL)
+	accessJWT, err := h.deps.JWTService.Sign(claims, constants.AccessTokenTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
 		return
@@ -405,14 +400,14 @@ func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role
 		return "", "", err
 	}
 	jti := rawRT[:8]
-	if err = h.deps.TokenStore.Create(ctx, userID, tenantID, rawRT, refreshTokenTTL); err != nil {
+	if err = h.deps.TokenStore.Create(ctx, userID, tenantID, rawRT, constants.RefreshTokenTTL); err != nil {
 		return "", "", fmt.Errorf("store refresh token: %w", err)
 	}
 	claims := auth.TokenClaims{
 		Sub: userID, TenantID: tenantID, Role: role, GlobalRole: globalRole, JTI: jti,
 		AvatarURL: avatarURL, GitHubLogin: githubLogin,
 	}
-	accessJWT, err = h.deps.JWTService.Sign(claims, accessTokenTTL)
+	accessJWT, err = h.deps.JWTService.Sign(claims, constants.AccessTokenTTL)
 	if err != nil {
 		return "", "", fmt.Errorf("sign access token: %w", err)
 	}
@@ -420,7 +415,7 @@ func (h *AuthHandler) issueTokenPair(ctx context.Context, userID, tenantID, role
 }
 
 func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string) {
-	maxAge := int(refreshTokenTTL.Seconds())
+	maxAge := int(constants.RefreshTokenTTL.Seconds())
 	if value == "" {
 		maxAge = -1
 	}
