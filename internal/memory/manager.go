@@ -223,27 +223,28 @@ func (m *MemoryManager) Clear(ctx context.Context, sessionCtx *SessionContext) e
 	return nil
 }
 
-// GetStats returns memory statistics
+// GetStats returns memory statistics by querying actual pipeline tables.
 func (m *MemoryManager) GetStats(ctx context.Context, sessionCtx *SessionContext) (*MemoryStats, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	shortTermStats, err := m.shortTerm.GetStats(ctx, sessionCtx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get short-term stats: %w", err)
+	if m.pool == nil || sessionCtx == nil || sessionCtx.TenantID == "" {
+		return &MemoryStats{}, nil
 	}
 
-	return &MemoryStats{
-		TotalEntries:     shortTermStats.TotalEntries,
-		ShortTermCount:   shortTermStats.ShortTermCount,
-		LongTermCount:    0,
-		EntityCount:      0,
-		SessionsCount:    0,
-		ActiveUsers:      0,
-		VectorCount:      0,
-		LastAccessTime:   shortTermStats.LastAccessTime,
-		StorageSizeBytes: 0,
-	}, nil
+	stats := &MemoryStats{}
+	err := m.execTenant(ctx, sessionCtx.TenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_ = tx.QueryRow(ctx, "SELECT COUNT(*) FROM memory_entries").Scan(&stats.TotalEntries)
+		_ = tx.QueryRow(ctx, "SELECT COUNT(*) FROM memory_entries WHERE enriched_at IS NOT NULL").Scan(&stats.LongTermCount)
+		stats.ShortTermCount = stats.TotalEntries - stats.LongTermCount
+		_ = tx.QueryRow(ctx, "SELECT COUNT(*) FROM entities").Scan(&stats.EntityCount)
+		_ = tx.QueryRow(ctx, "SELECT COUNT(*) FROM chat_conversations").Scan(&stats.SessionsCount)
+		_ = tx.QueryRow(ctx, "SELECT COUNT(DISTINCT user_id) FROM memory_entries WHERE user_id IS NOT NULL").Scan(&stats.ActiveUsers)
+		stats.VectorCount = stats.LongTermCount
+		_ = tx.QueryRow(ctx, "SELECT COALESCE(MAX(created_at), '1970-01-01') FROM memory_entries").Scan(&stats.LastAccessTime)
+		return nil
+	})
+	if err != nil {
+		return &MemoryStats{}, nil
+	}
+	return stats, nil
 }
 
 // Cleanup removes expired entries from all memory systems
