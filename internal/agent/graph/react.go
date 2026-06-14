@@ -29,6 +29,7 @@ type ReActState struct {
 	TotalTokens    int
 	OnToken        func(string) // if non-nil, stream tokens from the final LLM response
 	RAGSearchFn    func(ctx context.Context, workspaces []string, query string, topK int) (string, error)
+	RecallMemoryFn func(ctx context.Context, input map[string]any) (string, error)
 }
 
 // BuildReActGraph constructs and compiles the ReAct agent graph.
@@ -118,7 +119,8 @@ func makeToolNode(capGW capgateway.CapabilityGateway, logger *zap.Logger) NodeFu
 		for _, tc := range last.ToolCalls {
 			toolStart := time.Now()
 			var content string
-			if tc.Name == "search_knowledge" {
+			switch tc.Name {
+			case "search_knowledge":
 				if s.RAGSearchFn == nil {
 					content = "error: search_knowledge tool not configured"
 				} else {
@@ -151,7 +153,24 @@ func makeToolNode(capGW capgateway.CapabilityGateway, logger *zap.Logger) NodeFu
 					zap.String("tool_name", tc.Name),
 					zap.Int64("latency_ms", toolLatencyMs),
 				)
-			} else {
+			case "recall_memory":
+				if s.RecallMemoryFn == nil {
+					content = "error: recall_memory tool not configured"
+				} else {
+					var recallErr error
+					content, recallErr = s.RecallMemoryFn(ctx, tc.Arguments)
+					if recallErr != nil {
+						content = fmt.Sprintf("error: %v", recallErr)
+					}
+				}
+				toolLatencyMs := time.Since(toolStart).Milliseconds()
+				logger.Info("react.tool",
+					zap.String("trace_id", s.TraceID),
+					zap.String("tenant_id", s.TenantID),
+					zap.String("tool_name", tc.Name),
+					zap.Int64("latency_ms", toolLatencyMs),
+				)
+			default:
 				toolResp, err := capGW.Route(ctx, capgateway.CapabilityRequest{
 					TraceID:  s.TraceID,
 					TenantID: s.TenantID,

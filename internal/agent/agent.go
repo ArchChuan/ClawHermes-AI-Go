@@ -10,6 +10,7 @@ import (
 	agentgraph "github.com/byteBuilderX/stratum/internal/agent/graph"
 	"github.com/byteBuilderX/stratum/internal/capgateway"
 	"github.com/byteBuilderX/stratum/internal/memory"
+	"github.com/byteBuilderX/stratum/internal/memory/pipeline"
 	"github.com/byteBuilderX/stratum/pkg/observability"
 	"go.uber.org/zap"
 )
@@ -130,6 +131,7 @@ type BaseAgent struct {
 	SessionContext *memory.SessionContext
 	CapGateway     capgateway.CapabilityGateway
 	ChatStore      ChatStore
+	MemoryInjector *pipeline.MemoryInjector
 }
 
 // AgentState represents the current state of an agent
@@ -275,6 +277,21 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 	workspaceNames := a.KnowledgeWorkspaceNames
 	a.mu.Unlock()
 
+	// Inject memory context into system prompt
+	if a.MemoryInjector != nil && cfg.ConversationID != "" {
+		ic := pipeline.InjectionContext{
+			TenantID:       cfg.TenantID,
+			UserID:         cfg.UserID,
+			AgentID:        agentID,
+			ConversationID: cfg.ConversationID,
+		}
+		if memCtx, err := a.MemoryInjector.BuildContext(ctx, ic); err != nil {
+			a.Logger.Warn("memory injection failed", zap.Error(err))
+		} else if memCtx != "" {
+			systemPrompt = memCtx + "\n" + systemPrompt
+		}
+	}
+
 	a.Logger.Info("agent execution started",
 		zap.String("agent_id", agentID),
 		zap.String("type", string(agentType)),
@@ -347,6 +364,31 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 				},
 			})
 		}
+		if a.MemoryInjector != nil {
+			availableTools = append(availableTools, capgateway.ToolDefinition{
+				Name:        "recall_memory",
+				Description: "Search long-term memory for relevant past interactions, entities, and context. Use when you need to recall information from previous conversations.",
+				InputSchema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"query": map[string]interface{}{
+							"type":        "string",
+							"description": "Search query to find relevant memories",
+						},
+						"scope": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"private", "personal", "shared"},
+							"description": "private=this user+agent, personal=this user across agents, shared=all tenant memories",
+						},
+						"limit": map[string]interface{}{
+							"type":        "integer",
+							"description": "Max results (1-20, default 5)",
+						},
+					},
+					"required": []string{"query"},
+				},
+			})
+		}
 		initState := agentgraph.ReActState{
 			TenantID:       cfg.TenantID,
 			LLMAPIKeys:     cfg.LLMAPIKeys,
@@ -355,6 +397,12 @@ func (a *BaseAgent) Execute(ctx context.Context, input string, options ...Execut
 			OnToken:        cfg.TokenCallback,
 			AvailableTools: append(availableTools, cfg.ExtraTools...),
 			RAGSearchFn:    cfg.RAGSearchFn,
+		}
+		if a.MemoryInjector != nil {
+			recallHandler := pipeline.NewRecallHandler(a.MemoryInjector.Pool(), a.Logger)
+			initState.RecallMemoryFn = func(ctx context.Context, input map[string]any) (string, error) {
+				return recallHandler.Handle(ctx, cfg.TenantID, cfg.UserID, agentID, input)
+			}
 		}
 		execCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 		defer cancel()
