@@ -16,9 +16,11 @@ import (
 	agentpkg "github.com/byteBuilderX/stratum/internal/agent"
 	"github.com/byteBuilderX/stratum/internal/capgateway"
 	"github.com/byteBuilderX/stratum/internal/config"
+	"github.com/byteBuilderX/stratum/internal/embedding"
 	harnesspkg "github.com/byteBuilderX/stratum/internal/harness"
 	"github.com/byteBuilderX/stratum/internal/hermes"
 	"github.com/byteBuilderX/stratum/internal/llmgateway"
+	mempipeline "github.com/byteBuilderX/stratum/internal/memory/pipeline"
 	"github.com/byteBuilderX/stratum/internal/migration"
 	"github.com/byteBuilderX/stratum/internal/orchestrator"
 	"github.com/byteBuilderX/stratum/internal/skillgateway"
@@ -28,6 +30,7 @@ import (
 	pkgredis "github.com/byteBuilderX/stratum/pkg/redis"
 	"github.com/byteBuilderX/stratum/pkg/tenantdb"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 )
 
@@ -139,6 +142,48 @@ func main() {
 	)
 	if err := appHarness.Register(llmComponent); err != nil {
 		logger.Fatal("Failed to register LLM Gateway component", zap.Error(err))
+	}
+
+	// 3b. Memory Pipeline component
+	var memPipeline *mempipeline.Pipeline
+	pipelineCfg := mempipeline.DefaultConfig()
+	pipelineCfg.Enabled = cfg.MemoryPipelineEnabled
+	pipelineCfg.NatsURL = cfg.NatsURL
+
+	pipelineComponent := harnesspkg.NewSimpleComponent("memory-pipeline", logger,
+		harnesspkg.WithStartFunc(func(ctx context.Context) error {
+			if !pipelineCfg.Enabled {
+				logger.Info("Memory pipeline disabled, skipping")
+				return nil
+			}
+			nc, err := nats.Connect(pipelineCfg.NatsURL)
+			if err != nil {
+				logger.Warn("memory-pipeline: NATS connect failed", zap.Error(err))
+				return nil
+			}
+			embedSvc := embedding.NewEmbeddingService(gateway, logger)
+			vectorAdapter := mempipeline.NewMilvusVectorAdapter(services.VectorStore)
+			memPipeline = mempipeline.New(pipelineCfg, pgPool.DB(), nc, embedSvc, vectorAdapter, gateway, logger)
+			return memPipeline.Start(ctx)
+		}),
+		harnesspkg.WithStopFunc(func(ctx context.Context) error {
+			if memPipeline != nil {
+				memPipeline.Stop()
+			}
+			return nil
+		}),
+		harnesspkg.WithHealthCheckFunc(func(ctx context.Context) error {
+			if !pipelineCfg.Enabled {
+				return nil
+			}
+			if memPipeline == nil {
+				return fmt.Errorf("memory pipeline not initialized")
+			}
+			return nil
+		}),
+	)
+	if err := appHarness.Register(pipelineComponent); err != nil {
+		logger.Fatal("Failed to register memory pipeline component", zap.Error(err))
 	}
 
 	// 4. Skill Registry component
